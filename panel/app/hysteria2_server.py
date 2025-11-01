@@ -44,8 +44,22 @@ class Hysteria2Server:
         from cryptography.hazmat.primitives.asymmetric import rsa
         from datetime import datetime, timedelta
         
+        # Resolve paths (handle relative paths)
+        cert_path = Path(self.cert_path)
+        key_path = Path(self.key_path)
+        
+        # If relative paths, resolve from current working directory
+        if not cert_path.is_absolute():
+            # Try to resolve from app directory
+            from app.config import settings
+            import os
+            base_dir = Path(os.getcwd())
+            cert_path = base_dir / cert_path
+            key_path = base_dir / key_path
+        
         # Create directories
-        Path(self.cert_path).parent.mkdir(parents=True, exist_ok=True)
+        cert_path.parent.mkdir(parents=True, exist_ok=True)
+        key_path.parent.mkdir(parents=True, exist_ok=True)
         
         # Generate private key
         private_key = rsa.generate_private_key(
@@ -80,16 +94,20 @@ class Hysteria2Server:
         ).sign(private_key, hashes.SHA256())
         
         # Write certificate
-        with open(self.cert_path, "wb") as f:
+        with open(cert_path, "wb") as f:
             f.write(cert.public_bytes(serialization.Encoding.PEM))
         
         # Write private key
-        with open(self.key_path, "wb") as f:
+        with open(key_path, "wb") as f:
             f.write(private_key.private_bytes(
                 encoding=serialization.Encoding.PEM,
                 format=serialization.PrivateFormat.PKCS8,
                 encryption_algorithm=serialization.NoEncryption()
             ))
         
-        print(f"Generated CA certificate at {self.cert_path}")
+        # Update paths in instance
+        self.cert_path = str(cert_path)
+        self.key_path = str(key_path)
+        
+        print(f"Generated CA certificate at {cert_path}")
 
