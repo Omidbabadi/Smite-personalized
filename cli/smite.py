@@ -206,6 +206,9 @@ def cmd_admin_create(args):
             # Write script to temp file inside container
             script_content = f"""import asyncio
 import sys
+import os
+# Add /app to Python path so we can import app module
+sys.path.insert(0, '/app')
 from app.database import AsyncSessionLocal, init_db
 from app.models import Admin
 from sqlalchemy import select
@@ -262,17 +265,17 @@ asyncio.run(create())
                     # Fallback to direct exec with base64 encoded script
                     import base64
                     script_b64 = base64.b64encode(script_content.encode()).decode()
-                    script_one_liner = f"cd /app && echo {script_b64} | base64 -d | python3"
+                    script_one_liner = f"PYTHONPATH=/app echo {script_b64} | base64 -d | python3"
                     proc = subprocess.run(
-                        ["docker", "exec", container_name, "sh", "-c", script_one_liner],
+                        ["docker", "exec", "-e", "PYTHONPATH=/app", container_name, "sh", "-c", script_one_liner],
                         capture_output=True,
                         text=True,
                         timeout=30
                     )
                 else:
-                    # Execute script in container from /app directory so it can import app module
+                    # Execute script in container with PYTHONPATH set
                     proc = subprocess.run(
-                        ["docker", "exec", "-w", "/app", container_name, "python", "/tmp/create_admin.py"],
+                        ["docker", "exec", "-e", "PYTHONPATH=/app", container_name, "python", "/tmp/create_admin.py"],
                         capture_output=True,
                         text=True,
                         timeout=30
