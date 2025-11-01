@@ -30,8 +30,20 @@ async def get_ca_cert(download: bool = False):
     cert_path.parent.mkdir(parents=True, exist_ok=True)
     
     # Generate certificate if it doesn't exist or is empty
-    if not cert_path.exists() or (cert_path.exists() and cert_path.stat().st_size == 0):
-        print(f"CA certificate missing or empty at {cert_path}, generating...")
+    needs_generation = False
+    if not cert_path.exists():
+        needs_generation = True
+        print(f"CA certificate missing at {cert_path}, generating...")
+    elif cert_path.stat().st_size == 0:
+        needs_generation = True
+        print(f"CA certificate is empty (0 bytes) at {cert_path}, deleting and regenerating...")
+        # Delete empty file
+        try:
+            cert_path.unlink()
+        except:
+            pass
+    
+    if needs_generation:
         h2_server = Hysteria2Server()
         # Update paths to use resolved paths
         h2_server.cert_path = str(cert_path)
