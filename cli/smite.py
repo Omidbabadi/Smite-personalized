@@ -87,9 +87,33 @@ def cmd_admin_create(args):
         )
         
         if check_result.returncode != 0 or not check_result.stdout.strip():
-            print("Container 'smite-panel' not found. Please start the panel first:")
-            print("  docker compose up -d")
-            sys.exit(1)
+            print("Container 'smite-panel' not found.")
+            print("\nStarting the panel...")
+            compose_file = get_compose_file()
+            if not compose_file.exists():
+                print(f"Error: docker-compose.yml not found at {compose_file}")
+                sys.exit(1)
+            start_result = subprocess.run(
+                ["docker", "compose", "-f", str(compose_file), "up", "-d"],
+                capture_output=True,
+                text=True
+            )
+            if start_result.returncode != 0:
+                print(f"Failed to start panel: {start_result.stderr}")
+                sys.exit(1)
+            print("Panel started. Waiting for it to be ready...")
+            import time
+            time.sleep(5)  # Give it a moment to start
+            # Re-check
+            check_result = subprocess.run(
+                ["docker", "ps", "-a", "--filter", "name=smite-panel", "--format", "{{.Names}}"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if not check_result.stdout.strip():
+                print("Error: Container still not found after starting.")
+                sys.exit(1)
         
         container_name = check_result.stdout.strip()
         
@@ -114,10 +138,25 @@ def cmd_admin_create(args):
                     break
                 elif "Restarting" in status:
                     print(".", end="", flush=True)
+                elif "Exited" in status or "Dead" in status:
+                    print(f"\nContainer is stopped (status: {status})")
+                    print("Attempting to start container...")
+                    compose_file = get_compose_file()
+                    start_result = subprocess.run(
+                        ["docker", "compose", "-f", str(compose_file), "start", "smite-panel"],
+                        capture_output=True,
+                        text=True
+                    )
+                    if start_result.returncode == 0:
+                        print("Container started. Waiting...")
+                        time.sleep(5)
+                        continue
+                    else:
+                        print(f"Failed to start container: {start_result.stderr}")
+                        sys.exit(1)
                 else:
                     print(f"\nContainer status: {status}")
-                    print("Please wait for the container to start, then try again.")
-                    sys.exit(1)
+                    print("Waiting for container to be ready...")
             print(".", end="", flush=True)
             time.sleep(2)
             waited += 2
