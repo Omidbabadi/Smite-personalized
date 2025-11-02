@@ -44,14 +44,22 @@ echo "Configuration:"
 echo ""
 echo "=== CA Certificate ==="
 echo "Please paste the CA certificate from the panel (copy from Nodes > View CA Certificate):"
-echo "Press Enter after pasting, then type 'END' on a new line and press Enter again"
+echo "Press Enter after pasting, then press Enter again on an empty line to finish"
 echo ""
 PANEL_CA_CONTENT=""
+has_content=false
 while IFS= read -r line; do
-    if [ "$line" = "END" ]; then
-        break
+    if [ -z "$line" ]; then
+        # If we have content and hit an empty line, we're done
+        if [ "$has_content" = true ]; then
+            break
+        fi
+        # Otherwise, ignore leading empty lines
+        continue
+    else
+        has_content=true
+        PANEL_CA_CONTENT="${PANEL_CA_CONTENT}${line}\n"
     fi
-    PANEL_CA_CONTENT="${PANEL_CA_CONTENT}${line}\n"
 done
 
 if [ -z "$PANEL_CA_CONTENT" ]; then
