@@ -157,4 +157,24 @@ async def root():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    
+    if settings.https_enabled:
+        import ssl
+        cert_path = Path(settings.https_cert_path).resolve()
+        key_path = Path(settings.https_key_path).resolve()
+        
+        if not cert_path.exists() or not key_path.exists():
+            logger.warning(f"HTTPS enabled but certificate files not found. Using HTTP.")
+            uvicorn.run(app, host=settings.panel_host, port=settings.panel_port)
+        else:
+            ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ssl_context.load_cert_chain(str(cert_path), str(key_path))
+            uvicorn.run(
+                app,
+                host=settings.panel_host,
+                port=settings.panel_port,
+                ssl_keyfile=str(key_path),
+                ssl_certfile=str(cert_path)
+            )
+    else:
+        uvicorn.run(app, host=settings.panel_host, port=settings.panel_port)

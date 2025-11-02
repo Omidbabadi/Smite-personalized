@@ -508,12 +508,22 @@ class RatholeAdapter:
     
     def apply(self, tunnel_id: str, spec: Dict[str, Any]):
         """Apply Rathole tunnel"""
+        remote_addr = spec.get('remote_addr', '').strip()
+        token = spec.get('token', '').strip()
+        local_addr = spec.get('local_addr', '127.0.0.1:8080')
+        
+        # Validate required fields
+        if not remote_addr:
+            raise ValueError("Rathole requires 'remote_addr' (panel address) in spec")
+        if not token:
+            raise ValueError("Rathole requires 'token' in spec")
+        
         config = f"""[client]
-remote_addr = "{spec.get('remote_addr', '')}"
-token = "{spec.get('token', '')}"
+remote_addr = "{remote_addr}"
+token = "{token}"
 
 [client.services.{tunnel_id}]
-local_addr = "{spec.get('local_addr', '127.0.0.1:8080')}"
+local_addr = "{local_addr}"
 """
         
         config_path = self.config_dir / f"{tunnel_id}.toml"
@@ -612,6 +622,7 @@ class AdapterManager:
             "rathole": RatholeAdapter(),
         }
         self.active_tunnels: Dict[str, CoreAdapter] = {}
+        self.usage_tracking: Dict[str, float] = {}  # Track previous usage to calculate increments
     
     def get_adapter(self, tunnel_type: str) -> Optional[CoreAdapter]:
         """Get adapter for tunnel type"""
@@ -625,6 +636,9 @@ class AdapterManager:
         
         adapter.apply(tunnel_id, spec)
         self.active_tunnels[tunnel_id] = adapter
+        # Initialize usage tracking
+        if tunnel_id not in self.usage_tracking:
+            self.usage_tracking[tunnel_id] = 0.0
     
     async def remove_tunnel(self, tunnel_id: str):
         """Remove tunnel"""
@@ -632,6 +646,9 @@ class AdapterManager:
             adapter = self.active_tunnels[tunnel_id]
             adapter.remove(tunnel_id)
             del self.active_tunnels[tunnel_id]
+        # Clean up usage tracking
+        if tunnel_id in self.usage_tracking:
+            del self.usage_tracking[tunnel_id]
     
     async def get_tunnel_status(self, tunnel_id: str) -> Dict[str, Any]:
         """Get tunnel status"""

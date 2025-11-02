@@ -268,3 +268,84 @@ async def delete_tunnel(tunnel_id: str, request: Request, db: AsyncSession = Dep
     await db.commit()
     return {"status": "deleted"}
 
+
+@router.put("/{tunnel_id}", response_model=TunnelResponse)
+async def update_tunnel(tunnel_id: str, tunnel: TunnelUpdate, request: Request, db: AsyncSession = Depends(get_db)):
+    """Update a tunnel"""
+    from app.hysteria2_client import Hysteria2Client
+    from app.port_forwarder import port_forwarder
+    
+    result = await db.execute(select(Tunnel).where(Tunnel.id == tunnel_id))
+    db_tunnel = result.scalar_one_or_none()
+    if not db_tunnel:
+        raise HTTPException(status_code=404, detail="Tunnel not found")
+    
+    # Update fields
+    if tunnel.name is not None:
+        db_tunnel.name = tunnel.name
+    if tunnel.spec is not None:
+        db_tunnel.spec = tunnel.spec
+    if tunnel.quota_mb is not None:
+        db_tunnel.quota_mb = tunnel.quota_mb
+    if tunnel.expires_at is not None:
+        db_tunnel.expires_at = tunnel.expires_at
+    
+    db_tunnel.revision += 1
+    db_tunnel.updated_at = datetime.utcnow()
+    
+    # If spec changed, reapply tunnel
+    if tunnel.spec is not None:
+        result = await db.execute(select(Node).where(Node.id == db_tunnel.node_id))
+        node = result.scalar_one_or_none()
+        if node:
+            client = Hysteria2Client()
+            try:
+                # Stop old port forwarding
+                old_remote_port = db_tunnel.spec.get("remote_port") or db_tunnel.spec.get("listen_port")
+                if old_remote_port and hasattr(request.app.state, 'port_forwarder'):
+                    try:
+                        await port_forwarder.stop_forward(int(old_remote_port))
+                    except:
+                        pass
+                
+                # Apply new tunnel config
+                response = await client.send_to_node(
+                    node_id=node.id,
+                    endpoint="/api/agent/tunnels/apply",
+                    data={
+                        "tunnel_id": db_tunnel.id,
+                        "core": db_tunnel.core,
+                        "type": db_tunnel.type,
+                        "spec": db_tunnel.spec
+                    }
+                )
+                
+                if response.get("status") == "success":
+                    db_tunnel.status = "active"
+                    # Start new port forwarding if needed
+                    needs_tcp_forwarding = db_tunnel.type in ["tcp", "ws", "grpc"] and db_tunnel.core == "xray"
+                    if needs_tcp_forwarding:
+                        remote_port = db_tunnel.spec.get("remote_port") or db_tunnel.spec.get("listen_port")
+                        if remote_port and hasattr(request.app.state, 'port_forwarder'):
+                            node_address = node.node_metadata.get("ip_address") if node.node_metadata else None
+                            if node_address:
+                                try:
+                                    await port_forwarder.start_forward(
+                                        local_port=int(remote_port),
+                                        node_address=node_address,
+                                        remote_port=int(remote_port)
+                                    )
+                                except Exception as e:
+                                    import logging
+                                    logging.error(f"Failed to start port forwarding: {e}")
+                else:
+                    db_tunnel.status = "error"
+            except Exception as e:
+                db_tunnel.status = "error"
+                import logging
+                logging.error(f"Failed to reapply tunnel: {e}")
+    
+    await db.commit()
+    await db.refresh(db_tunnel)
+    return db_tunnel
+

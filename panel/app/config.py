@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     panel_port: int = 8000
     panel_host: str = "0.0.0.0"
     https_enabled: bool = False
+    https_cert_path: str = "./certs/server.crt"
+    https_key_path: str = "./certs/server.key"
     docs_enabled: bool = True
     
     # Database

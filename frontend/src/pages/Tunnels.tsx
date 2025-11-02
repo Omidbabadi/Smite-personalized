@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Plus, Trash2 } from 'lucide-react'
+import { Plus, Trash2, Edit2 } from 'lucide-react'
 import api from '../api/client'
 
 interface Tunnel {
@@ -23,6 +23,7 @@ const Tunnels = () => {
   const [nodes, setNodes] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showAddModal, setShowAddModal] = useState(false)
+  const [editingTunnel, setEditingTunnel] = useState<Tunnel | null>(null)
 
   useEffect(() => {
     fetchData()
@@ -83,16 +84,23 @@ const Tunnels = () => {
         {tunnels.map((tunnel) => (
           <div
             key={tunnel.id}
-            className="bg-white rounded-lg border border-gray-200 p-6"
+            className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6"
           >
             <div className="flex justify-between items-start mb-4">
               <div>
-                <h3 className="text-lg font-semibold text-gray-900">{tunnel.name}</h3>
-                <p className="text-sm text-gray-500 mt-1">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{tunnel.name}</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                   {tunnel.core} / {tunnel.type}
                 </p>
               </div>
               <div className="flex gap-2">
+                <button
+                  onClick={() => setEditingTunnel(tunnel)}
+                  className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"
+                  title="Edit tunnel"
+                >
+                  <Edit2 size={18} />
+                </button>
                 <button
                   onClick={() => deleteTunnel(tunnel.id)}
                   className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
@@ -105,7 +113,7 @@ const Tunnels = () => {
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
               <div>
-                <p className="text-xs text-gray-500 mb-1">Status</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Status</p>
                 <span
                   className={`inline-block px-2 py-1 rounded text-xs font-medium ${
                     tunnel.status === 'active'
@@ -120,10 +128,20 @@ const Tunnels = () => {
               </div>
               <div>
                 <p className="text-xs text-gray-500 mb-1">Usage</p>
-                <p className="text-sm font-medium text-gray-900">
-                  {tunnel.used_mb.toFixed(2)} MB
-                  {tunnel.quota_mb > 0 && ` / ${tunnel.quota_mb} MB`}
-                </p>
+                <div className="space-y-1">
+                  <p className="text-sm font-medium text-gray-900 dark:text-white">
+                    {tunnel.used_mb.toFixed(2)} MB
+                    {tunnel.quota_mb > 0 && ` / ${tunnel.quota_mb} MB`}
+                  </p>
+                  {tunnel.quota_mb > 0 && (
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div
+                        className="bg-blue-600 h-2 rounded-full"
+                        style={{ width: `${Math.min((tunnel.used_mb / tunnel.quota_mb) * 100, 100)}%` }}
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
               <div>
                 <p className="text-xs text-gray-500 mb-1">Revision</p>
@@ -171,6 +189,145 @@ const Tunnels = () => {
           }}
         />
       )}
+
+      {editingTunnel && (
+        <EditTunnelModal
+          tunnel={editingTunnel}
+          nodes={nodes}
+          onClose={() => setEditingTunnel(null)}
+          onSuccess={() => {
+            setEditingTunnel(null)
+            fetchData()
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+interface EditTunnelModalProps {
+  tunnel: Tunnel
+  nodes: any[]
+  onClose: () => void
+  onSuccess: () => void
+}
+
+const EditTunnelModal = ({ tunnel, onClose, onSuccess }: EditTunnelModalProps) => {
+  const [formData, setFormData] = useState({
+    name: tunnel.name,
+    quota_mb: tunnel.quota_mb,
+    expires_days: '',
+    expires_date: tunnel.expires_at ? tunnel.expires_at.split('T')[0] : '',
+  })
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    try {
+      let expires_at: string | null = null
+      if (formData.expires_days) {
+        const days = parseInt(formData.expires_days)
+        if (days > 0) {
+          const expiryDate = new Date()
+          expiryDate.setDate(expiryDate.getDate() + days)
+          expires_at = expiryDate.toISOString().split('T')[0] + 'T00:00:00'
+        }
+      } else if (formData.expires_date) {
+        expires_at = formData.expires_date + 'T00:00:00'
+      }
+
+      await api.put(`/tunnels/${tunnel.id}`, {
+        name: formData.name,
+        quota_mb: formData.quota_mb,
+        expires_at: expires_at,
+      })
+      onSuccess()
+    } catch (error) {
+      console.error('Failed to update tunnel:', error)
+      alert('Failed to update tunnel')
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
+        <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Edit Tunnel</h2>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Name
+            </label>
+            <input
+              type="text"
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Quota (MB, 0 = unlimited)
+            </label>
+            <input
+              type="number"
+              value={formData.quota_mb}
+              onChange={(e) =>
+                setFormData({ ...formData, quota_mb: parseFloat(e.target.value) || 0 })
+              }
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+              min="0"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Expires In (days)
+              </label>
+              <input
+                type="number"
+                value={formData.expires_days}
+                onChange={(e) => {
+                  const days = e.target.value
+                  setFormData({ ...formData, expires_days: days, expires_date: '' })
+                }}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+                min="1"
+                placeholder="e.g., 30"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Or Expires On (date)
+              </label>
+              <input
+                type="date"
+                value={formData.expires_date}
+                onChange={(e) => {
+                  const date = e.target.value
+                  setFormData({ ...formData, expires_date: date, expires_days: '' })
+                }}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+                min={new Date().toISOString().split('T')[0]}
+              />
+            </div>
+          </div>
+          <div className="flex gap-3 justify-end">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            >
+              Save Changes
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   )
 }
@@ -294,25 +451,25 @@ const AddTunnelModal = ({ nodes, onClose, onSuccess }: AddTunnelModalProps) => {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Name
               </label>
               <input
                 type="text"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
                 required
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Node
               </label>
               <select
                 value={formData.node_id}
                 onChange={(e) => setFormData({ ...formData, node_id: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
                 required
               >
                 <option value="">Select a node</option>
@@ -327,13 +484,13 @@ const AddTunnelModal = ({ nodes, onClose, onSuccess }: AddTunnelModalProps) => {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Core
               </label>
               <select
                 value={formData.core}
                 onChange={(e) => handleCoreChange(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
               >
                 <option value="xray">Xray</option>
                 <option value="wireguard">WireGuard</option>
@@ -341,13 +498,13 @@ const AddTunnelModal = ({ nodes, onClose, onSuccess }: AddTunnelModalProps) => {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Type
               </label>
               <select
                 value={formData.type}
                 onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
                 disabled={formData.core === 'wireguard' || formData.core === 'rathole'}
               >
                 {(formData.core === 'wireguard' || formData.core === 'rathole') ? (
@@ -366,7 +523,7 @@ const AddTunnelModal = ({ nodes, onClose, onSuccess }: AddTunnelModalProps) => {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Remote Port
               </label>
               <input
@@ -375,7 +532,7 @@ const AddTunnelModal = ({ nodes, onClose, onSuccess }: AddTunnelModalProps) => {
                 onChange={(e) =>
                   setFormData({ ...formData, remote_port: parseInt(e.target.value) || 10000 })
                 }
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
                 min="1"
                 max="65535"
                 required
@@ -384,7 +541,7 @@ const AddTunnelModal = ({ nodes, onClose, onSuccess }: AddTunnelModalProps) => {
             </div>
             {formData.core === 'xray' && (formData.type === 'tcp' || formData.type === 'ws' || formData.type === 'grpc') && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Forward To (IP:Port)
                 </label>
                 <input
@@ -393,7 +550,7 @@ const AddTunnelModal = ({ nodes, onClose, onSuccess }: AddTunnelModalProps) => {
                   onChange={(e) =>
                     setFormData({ ...formData, forward_to: e.target.value })
                   }
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
                   placeholder="127.0.0.1:2053"
                 />
                 <p className="text-xs text-gray-500 mt-1">
@@ -405,7 +562,7 @@ const AddTunnelModal = ({ nodes, onClose, onSuccess }: AddTunnelModalProps) => {
             )}
             {(!(formData.core === 'xray' && (formData.type === 'tcp' || formData.type === 'ws' || formData.type === 'grpc'))) && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Quota (MB, 0 = unlimited)
                 </label>
                 <input
@@ -414,7 +571,7 @@ const AddTunnelModal = ({ nodes, onClose, onSuccess }: AddTunnelModalProps) => {
                   onChange={(e) =>
                     setFormData({ ...formData, quota_mb: parseFloat(e.target.value) || 0 })
                   }
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
                   min="0"
                 />
               </div>
@@ -423,7 +580,7 @@ const AddTunnelModal = ({ nodes, onClose, onSuccess }: AddTunnelModalProps) => {
           
           {formData.core === 'xray' && (formData.type === 'tcp' || formData.type === 'ws' || formData.type === 'grpc') && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Quota (MB, 0 = unlimited)
               </label>
               <input
@@ -432,7 +589,7 @@ const AddTunnelModal = ({ nodes, onClose, onSuccess }: AddTunnelModalProps) => {
                 onChange={(e) =>
                   setFormData({ ...formData, quota_mb: parseFloat(e.target.value) || 0 })
                 }
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
                 min="0"
               />
             </div>
@@ -440,7 +597,7 @@ const AddTunnelModal = ({ nodes, onClose, onSuccess }: AddTunnelModalProps) => {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Expires In (days)
               </label>
               <input
@@ -450,13 +607,13 @@ const AddTunnelModal = ({ nodes, onClose, onSuccess }: AddTunnelModalProps) => {
                   const days = e.target.value
                   setFormData({ ...formData, expires_days: days, expires_date: '' })
                 }}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
                 min="1"
                 placeholder="e.g., 30"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Or Expires On (date)
               </label>
               <input
@@ -466,7 +623,7 @@ const AddTunnelModal = ({ nodes, onClose, onSuccess }: AddTunnelModalProps) => {
                   const date = e.target.value
                   setFormData({ ...formData, expires_date: date, expires_days: '' })
                 }}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
                 min={new Date().toISOString().split('T')[0]}
               />
             </div>

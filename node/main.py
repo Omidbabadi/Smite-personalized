@@ -13,6 +13,48 @@ from app.hysteria2_client import Hysteria2Client
 from app.core_adapters import AdapterManager
 
 
+async def usage_reporting_task(app: FastAPI):
+    """Periodic task to collect and report usage"""
+    import asyncio
+    while True:
+        try:
+            await asyncio.sleep(60)  # Report every 60 seconds
+            
+            adapter_manager = app.state.adapter_manager
+            h2_client = app.state.h2_client
+            
+            if not adapter_manager or not h2_client or not h2_client.node_id:
+                continue
+            
+            # Collect usage for all active tunnels
+            for tunnel_id, adapter in adapter_manager.active_tunnels.items():
+                try:
+                    usage_mb = adapter.get_usage_mb(tunnel_id)
+                    total_bytes = int(usage_mb * 1024 * 1024)
+                    
+                    # Calculate incremental usage
+                    previous_bytes = adapter_manager.usage_tracking.get(tunnel_id, 0)
+                    if total_bytes > previous_bytes:
+                        incremental_bytes = total_bytes - previous_bytes
+                        adapter_manager.usage_tracking[tunnel_id] = total_bytes
+                        
+                        await h2_client.push_usage_to_panel(
+                            tunnel_id=tunnel_id,
+                            node_id=h2_client.node_id,
+                            bytes_used=incremental_bytes
+                        )
+                    elif previous_bytes == 0:
+                        # First time tracking, store but don't report
+                        adapter_manager.usage_tracking[tunnel_id] = total_bytes
+                except Exception as e:
+                    print(f"Warning: Failed to report usage for tunnel {tunnel_id}: {e}")
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            print(f"Error in usage reporting task: {e}")
+            await asyncio.sleep(60)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events"""
@@ -32,9 +74,19 @@ async def lifespan(app: FastAPI):
         print(f"Warning: Could not register with panel: {e}")
         print("Node will continue running but manual registration may be needed")
     
+    # Start usage reporting task
+    usage_task = asyncio.create_task(usage_reporting_task(app))
+    app.state.usage_task = usage_task
+    
     yield
     
     # Shutdown
+    if hasattr(app.state, 'usage_task'):
+        app.state.usage_task.cancel()
+        try:
+            await app.state.usage_task
+        except asyncio.CancelledError:
+            pass
     if hasattr(app.state, 'h2_client'):
         await app.state.h2_client.stop()
     if hasattr(app.state, 'adapter_manager'):
