@@ -23,6 +23,13 @@ const Nodes = () => {
 
   useEffect(() => {
     fetchNodes()
+    // Check if we should open the modal from URL params
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('add') === 'true') {
+      setShowAddModal(true)
+      // Clean URL
+      window.history.replaceState({}, '', '/nodes')
+    }
   }, [])
 
   const fetchNodes = async () => {
@@ -229,13 +236,19 @@ interface AddNodeModalProps {
 }
 
 const AddNodeModal = ({ onClose, onSuccess }: AddNodeModalProps) => {
-  const [fingerprint, setFingerprint] = useState('')
   const [name, setName] = useState('')
+  const [ipAddress, setIpAddress] = useState('')
+  const [apiPort, setApiPort] = useState('8888')
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
-      await api.post('/nodes', { name, fingerprint, metadata: {} })
+      await api.post('/nodes', { 
+        name, 
+        ip_address: ipAddress, 
+        api_port: parseInt(apiPort) || 8888,
+        metadata: {} 
+      })
       onSuccess()
     } catch (error) {
       console.error('Failed to add node:', error)
@@ -262,14 +275,29 @@ const AddNodeModal = ({ onClose, onSuccess }: AddNodeModalProps) => {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Fingerprint
+              IP Address
             </label>
             <input
               type="text"
-              value={fingerprint}
-              onChange={(e) => setFingerprint(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm"
-              placeholder="Node fingerprint from installation"
+              value={ipAddress}
+              onChange={(e) => setIpAddress(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              placeholder="e.g., 192.168.1.100"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              API Port
+            </label>
+            <input
+              type="number"
+              value={apiPort}
+              onChange={(e) => setApiPort(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              placeholder="8888"
+              min="1"
+              max="65535"
               required
             />
           </div>

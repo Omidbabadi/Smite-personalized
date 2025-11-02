@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Plus, Trash2, Play } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
 import api from '../api/client'
 
 interface Tunnel {
@@ -26,6 +26,13 @@ const Tunnels = () => {
 
   useEffect(() => {
     fetchData()
+    // Check if we should open the modal from URL params
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('create') === 'true') {
+      setShowAddModal(true)
+      // Clean URL
+      window.history.replaceState({}, '', '/tunnels')
+    }
   }, [])
 
   const fetchData = async () => {
@@ -40,16 +47,6 @@ const Tunnels = () => {
       console.error('Failed to fetch data:', error)
     } finally {
       setLoading(false)
-    }
-  }
-
-  const applyTunnel = async (id: string) => {
-    try {
-      await api.post(`/tunnels/${id}/apply`)
-      fetchData()
-    } catch (error) {
-      console.error('Failed to apply tunnel:', error)
-      alert('Failed to apply tunnel')
     }
   }
 
@@ -96,13 +93,6 @@ const Tunnels = () => {
                 </p>
               </div>
               <div className="flex gap-2">
-                <button
-                  onClick={() => applyTunnel(tunnel.id)}
-                  className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"
-                  title="Apply tunnel"
-                >
-                  <Play size={18} />
-                </button>
                 <button
                   onClick={() => deleteTunnel(tunnel.id)}
                   className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
@@ -198,17 +188,39 @@ const AddTunnelModal = ({ nodes, onClose, onSuccess }: AddTunnelModalProps) => {
     type: 'tcp',
     node_id: '',
     quota_mb: 0,
-    expires_at: '',
+    expires_days: '',
+    expires_date: '',
+    remote_port: 10000,
     spec: {} as Record<string, any>,
   })
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
+      // Calculate expires_at from days or date
+      let expires_at: string | null = null
+      if (formData.expires_days) {
+        const days = parseInt(formData.expires_days)
+        if (days > 0) {
+          const expiryDate = new Date()
+          expiryDate.setDate(expiryDate.getDate() + days)
+          expires_at = expiryDate.toISOString().split('T')[0] + 'T00:00:00'
+        }
+      } else if (formData.expires_date) {
+        expires_at = formData.expires_date + 'T00:00:00'
+      }
+
+      const spec = getSpecForType(formData.core, formData.type)
+      spec.remote_port = parseInt(formData.remote_port.toString()) || 10000
+      
       const payload = {
-        ...formData,
-        expires_at: formData.expires_at || null,
-        spec: getSpecForType(formData.type),
+        name: formData.name,
+        core: formData.core,
+        type: formData.type,
+        node_id: formData.node_id,
+        quota_mb: formData.quota_mb,
+        expires_at: expires_at,
+        spec: spec,
       }
       await api.post('/tunnels', payload)
       onSuccess()
@@ -218,29 +230,46 @@ const AddTunnelModal = ({ nodes, onClose, onSuccess }: AddTunnelModalProps) => {
     }
   }
 
-  const getSpecForType = (type: string): Record<string, any> => {
+  const getSpecForType = (core: string, type: string): Record<string, any> => {
     const baseSpec: Record<string, any> = {
       listen_port: 10000,
     }
 
+    // WireGuard and Rathole are separate cores, not types
+    if (core === 'wireguard') {
+      return {
+        ...baseSpec,
+        private_key: '',
+        peer_public_key: '',
+        address: '10.0.0.1/24',
+        allowed_ips: '0.0.0.0/0',
+      }
+    }
+    
+    if (core === 'rathole') {
+      return { ...baseSpec, remote_addr: '', token: '', local_addr: '127.0.0.1:8080' }
+    }
+
+    // Xray core types
     switch (type) {
       case 'ws':
         return { ...baseSpec, path: '/', uuid: generateUUID() }
       case 'grpc':
         return { ...baseSpec, service_name: 'GrpcService', uuid: generateUUID() }
-      case 'wireguard':
-        return {
-          ...baseSpec,
-          private_key: '',
-          peer_public_key: '',
-          address: '10.0.0.1/24',
-          allowed_ips: '0.0.0.0/0',
-        }
-      case 'rathole':
-        return { ...baseSpec, remote_addr: '', token: '', local_addr: '127.0.0.1:8080' }
       default:
         return baseSpec
     }
+  }
+
+  // When core changes, update type accordingly
+  const handleCoreChange = (core: string) => {
+    let newType = formData.type
+    if (core === 'wireguard' || core === 'rathole') {
+      newType = core // Type matches core for these
+    } else if (formData.type === 'wireguard' || formData.type === 'rathole') {
+      newType = 'tcp' // Reset to default xray type
+    }
+    setFormData({ ...formData, core, type: newType })
   }
 
   const generateUUID = () => {
@@ -296,7 +325,7 @@ const AddTunnelModal = ({ nodes, onClose, onSuccess }: AddTunnelModalProps) => {
               </label>
               <select
                 value={formData.core}
-                onChange={(e) => setFormData({ ...formData, core: e.target.value })}
+                onChange={(e) => handleCoreChange(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg"
               >
                 <option value="xray">Xray</option>
@@ -312,18 +341,39 @@ const AddTunnelModal = ({ nodes, onClose, onSuccess }: AddTunnelModalProps) => {
                 value={formData.type}
                 onChange={(e) => setFormData({ ...formData, type: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                disabled={formData.core === 'wireguard' || formData.core === 'rathole'}
               >
-                <option value="tcp">TCP</option>
-                <option value="udp">UDP</option>
-                <option value="ws">WebSocket</option>
-                <option value="grpc">gRPC</option>
-                <option value="wireguard">WireGuard</option>
-                <option value="rathole">Rathole</option>
+                {(formData.core === 'wireguard' || formData.core === 'rathole') ? (
+                  <option value={formData.core}>{formData.core.charAt(0).toUpperCase() + formData.core.slice(1)}</option>
+                ) : (
+                  <>
+                    <option value="tcp">TCP</option>
+                    <option value="udp">UDP</option>
+                    <option value="ws">WebSocket</option>
+                    <option value="grpc">gRPC</option>
+                  </>
+                )}
               </select>
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Remote Port
+              </label>
+              <input
+                type="number"
+                value={formData.remote_port}
+                onChange={(e) =>
+                  setFormData({ ...formData, remote_port: parseInt(e.target.value) || 10000 })
+                }
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                min="1"
+                max="65535"
+                required
+              />
+            </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Quota (MB, 0 = unlimited)
@@ -338,15 +388,38 @@ const AddTunnelModal = ({ nodes, onClose, onSuccess }: AddTunnelModalProps) => {
                 min="0"
               />
             </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Expires At
+                Expires In (days)
               </label>
               <input
-                type="datetime-local"
-                value={formData.expires_at}
-                onChange={(e) => setFormData({ ...formData, expires_at: e.target.value })}
+                type="number"
+                value={formData.expires_days}
+                onChange={(e) => {
+                  const days = e.target.value
+                  setFormData({ ...formData, expires_days: days, expires_date: '' })
+                }}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                min="1"
+                placeholder="e.g., 30"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Or Expires On (date)
+              </label>
+              <input
+                type="date"
+                value={formData.expires_date}
+                onChange={(e) => {
+                  const date = e.target.value
+                  setFormData({ ...formData, expires_date: date, expires_days: '' })
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                min={new Date().toISOString().split('T')[0]}
               />
             </div>
           </div>

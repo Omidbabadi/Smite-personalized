@@ -52,7 +52,9 @@ class TunnelResponse(BaseModel):
 
 @router.post("", response_model=TunnelResponse)
 async def create_tunnel(tunnel: TunnelCreate, db: AsyncSession = Depends(get_db)):
-    """Create a new tunnel"""
+    """Create a new tunnel and auto-apply it"""
+    from app.hysteria2_client import Hysteria2Client
+    
     # Verify node exists
     result = await db.execute(select(Node).where(Node.id == tunnel.node_id))
     node = result.scalar_one_or_none()
@@ -73,6 +75,38 @@ async def create_tunnel(tunnel: TunnelCreate, db: AsyncSession = Depends(get_db)
     db.add(db_tunnel)
     await db.commit()
     await db.refresh(db_tunnel)
+    
+    # Auto-apply tunnel immediately
+    try:
+        client = Hysteria2Client()
+        # Update node metadata with API address if not set
+        if not node.node_metadata.get("api_address"):
+            node.node_metadata["api_address"] = f"http://{node.node_metadata.get('ip_address', node.fingerprint)}:{node.node_metadata.get('api_port', 8888)}"
+            await db.commit()
+        
+        response = await client.send_to_node(
+            node_id=node.id,
+            endpoint="/api/agent/tunnels/apply",
+            data={
+                "tunnel_id": db_tunnel.id,
+                "core": db_tunnel.core,
+                "type": db_tunnel.type,
+                "spec": db_tunnel.spec
+            }
+        )
+        
+        if response.get("status") == "success":
+            db_tunnel.status = "active"
+        else:
+            db_tunnel.status = "error"
+        await db.commit()
+        await db.refresh(db_tunnel)
+    except Exception as e:
+        # Don't fail tunnel creation if apply fails, just mark as error
+        db_tunnel.status = "error"
+        await db.commit()
+        await db.refresh(db_tunnel)
+    
     return db_tunnel
 
 
