@@ -97,7 +97,7 @@ PANEL_CA_PATH=/etc/smite-node/certs/ca.crt
 PANEL_ADDRESS=$PANEL_ADDRESS
 EOF
 
-# Clone node files from GitHub
+# Clone/update node files from GitHub
 if [ ! -f "Dockerfile" ]; then
     echo "Cloning node files from GitHub..."
     TEMP_DIR=$(mktemp -d)
@@ -109,6 +109,19 @@ if [ ! -f "Dockerfile" ]; then
     # Copy node files
     cp -r "$TEMP_DIR/node"/* .
     rm -rf "$TEMP_DIR"
+else
+    # Update docker-compose.yml and Dockerfile if they exist
+    echo "Updating node files from GitHub..."
+    TEMP_DIR=$(mktemp -d)
+    git clone https://github.com/zZedix/Smite.git "$TEMP_DIR" || {
+        echo "Warning: Failed to clone repository for updates"
+        rm -rf "$TEMP_DIR"
+    } || true
+    if [ -d "$TEMP_DIR/node" ]; then
+        cp -f "$TEMP_DIR/node/docker-compose.yml" docker-compose.yml 2>/dev/null || true
+        cp -f "$TEMP_DIR/node/Dockerfile" Dockerfile 2>/dev/null || true
+        rm -rf "$TEMP_DIR"
+    fi
 fi
 
 # Install CLI
