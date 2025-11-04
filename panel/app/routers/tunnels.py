@@ -137,9 +137,12 @@ async def create_tunnel(tunnel: TunnelCreate, request: Request, db: AsyncSession
             debug_print(log_msg)
             
             if needs_gost_forwarding:
+                debug_print(f"DEBUG: Entering gost forwarding block for tunnel {db_tunnel.id}")
                 remote_port = db_tunnel.spec.get("remote_port") or db_tunnel.spec.get("listen_port")
-                logger.info(f"Tunnel {db_tunnel.id}: remote_port={remote_port}, has gost_forwarder={hasattr(request.app.state, 'gost_forwarder')}")
+                debug_print(f"DEBUG: Tunnel {db_tunnel.id}: remote_port={remote_port}, spec={db_tunnel.spec}")
+                debug_print(f"DEBUG: Tunnel {db_tunnel.id}: has gost_forwarder={hasattr(request.app.state, 'gost_forwarder')}")
                 if remote_port and hasattr(request.app.state, 'gost_forwarder'):
+                    debug_print(f"DEBUG: Conditions met - will start gost forwarding")
                     # Get node IP address from metadata
                     node_address = node.node_metadata.get("ip_address") if node.node_metadata else None
                     if not node_address:
