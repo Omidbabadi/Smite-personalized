@@ -39,26 +39,33 @@ RUN ARCH=$(uname -m) && \
     echo "Getting latest gost version..." && \
     GOST_VERSION=$(curl -sL https://api.github.com/repos/ginuerzh/gost/releases | jq -r '.[0].tag_name // "v2.11.5"') && \
     echo "Downloading gost ${GOST_VERSION} for ${ARCH}..." && \
-    GOST_URL="https://github.com/ginuerzh/gost/releases/download/${GOST_VERSION}/gost-linux-${ARCH}-${GOST_VERSION}.gz" && \
-    if curl -L "$GOST_URL" -o /tmp/gost.gz -f; then \
-        gunzip /tmp/gost.gz && \
-        mv /tmp/gost /usr/local/bin/gost && \
-        chmod +x /usr/local/bin/gost && \
-        echo "Gost installed successfully" && \
-        /usr/local/bin/gost -V || echo "Gost version check skipped"; \
+    # Query GitHub API for the correct asset URL
+    GOST_ASSET=$(curl -sL "https://api.github.com/repos/ginuerzh/gost/releases" | jq -r --arg arch "$ARCH" '.[0].assets[] | select(.name | contains("linux") and contains($arch)) | .browser_download_url' | head -1) && \
+    if [ -z "$GOST_ASSET" ] || [ "$GOST_ASSET" = "null" ]; then \
+        echo "Error: Could not find gost binary for ${ARCH}"; \
+        exit 1; \
+    fi && \
+    echo "Downloading from: $GOST_ASSET" && \
+    curl -L "$GOST_ASSET" -o /tmp/gost-download -f && \
+    if echo "$GOST_ASSET" | grep -q "\.gz$"; then \
+        gunzip /tmp/gost-download && \
+        mv /tmp/gost-download /usr/local/bin/gost; \
+    elif echo "$GOST_ASSET" | grep -q "\.zip$"; then \
+        unzip -q /tmp/gost-download -d /tmp && \
+        find /tmp -name "gost" -type f -executable -exec mv {} /usr/local/bin/gost \; && \
+        rm -rf /tmp/gost* /tmp/gost-download; \
+    elif echo "$GOST_ASSET" | grep -q "\.tar\.gz$"; then \
+        mv /tmp/gost-download /tmp/gost.tar.gz && \
+        tar -xzf /tmp/gost.tar.gz -C /tmp && \
+        find /tmp -name "gost" -type f -executable -exec mv {} /usr/local/bin/gost \; && \
+        rm -rf /tmp/gost* /tmp/gost.tar.gz; \
     else \
-        echo "Warning: Failed to download gost from ${GOST_URL}, trying alternative..." && \
-        GOST_ALT_URL="https://github.com/ginuerzh/gost/releases/download/v2.11.5/gost-linux-${ARCH}-v2.11.5.gz" && \
-        if curl -L "$GOST_ALT_URL" -o /tmp/gost.gz -f; then \
-            gunzip /tmp/gost.gz && \
-            mv /tmp/gost /usr/local/bin/gost && \
-            chmod +x /usr/local/bin/gost && \
-            echo "Gost installed from alternative URL"; \
-        else \
-            echo "Error: Could not download gost binary" && \
-            exit 1; \
-        fi; \
-    fi
+        mv /tmp/gost-download /usr/local/bin/gost; \
+    fi && \
+    chmod +x /usr/local/bin/gost && \
+    rm -f /tmp/gost-download /tmp/gost.tar.gz && \
+    echo "Gost installed successfully" && \
+    /usr/local/bin/gost -V || echo "Gost version check skipped"
 
 # Stage 3: Python dependencies (cached layer)
 FROM base AS deps
