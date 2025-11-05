@@ -178,10 +178,6 @@ const Tunnels = () => {
               )}
             </div>
 
-            {/* Footer Info */}
-            <div className="flex justify-between items-center text-xs text-gray-500 dark:text-gray-400 pt-3 border-t border-gray-100 dark:border-gray-700">
-              <span>Revision {tunnel.revision}</span>
-            </div>
           </div>
         ))}
       </div>
