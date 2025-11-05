@@ -101,18 +101,20 @@ class GostForwarder:
             # Start gost process
             try:
                 debug_print(f"About to start subprocess.Popen with cmd={cmd}")
-                # Use unbuffered output and log to file for debugging
+                # Use log file for debugging (keep file open for subprocess)
                 log_file = self.config_dir / f"gost_{tunnel_id}.log"
-                with open(log_file, 'w') as log_f:
-                    log_f.write(f"Starting gost with command: {' '.join(cmd)}\n")
-                    log_f.flush()
-                    proc = subprocess.Popen(
-                        cmd,
-                        stdout=log_f,
-                        stderr=subprocess.STDOUT,  # Combine stderr with stdout
-                        cwd=str(self.config_dir),
-                        start_new_session=True  # Detach from parent process group
-                    )
+                log_f = open(log_file, 'w')
+                log_f.write(f"Starting gost with command: {' '.join(cmd)}\n")
+                log_f.flush()
+                proc = subprocess.Popen(
+                    cmd,
+                    stdout=log_f,
+                    stderr=subprocess.STDOUT,  # Combine stderr with stdout
+                    cwd=str(self.config_dir),
+                    start_new_session=True  # Detach from parent process group
+                )
+                # Store file handle so we can close it later
+                self.active_forwards[f"{tunnel_id}_log"] = log_f
                 debug_print(f"subprocess.Popen returned, PID={proc.pid}")
                 logger.info(f"Started gost process for tunnel {tunnel_id}, PID={proc.pid}, log file: {log_file}")
             except Exception as e:
