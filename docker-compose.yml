@@ -7,8 +7,8 @@
 services:
   smite-panel:
     build:
-      context: ./panel
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: panel/Dockerfile
     container_name: smite-panel
     # Always use host networking so panel can reach nodes on host network
     # Nginx can still proxy to localhost:8000 when HTTPS is enabled

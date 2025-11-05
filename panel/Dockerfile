@@ -96,20 +96,21 @@ RUN ARCH=$(uname -m) && \
 # Stage 3: Frontend build (cached layer)
 FROM node:18-alpine AS frontend-build
 WORKDIR /app
-COPY ../frontend/package.json ../frontend/package-lock.json* ./
+# Build context is now root, so frontend/ is directly accessible
+COPY frontend/package.json frontend/package-lock.json* ./
 RUN --mount=type=cache,target=/root/.npm \
     if [ -f package-lock.json ]; then \
         npm ci --prefer-offline --no-audit --no-fund; \
     else \
         npm install --prefer-offline --no-audit --no-fund; \
     fi
-COPY ../frontend ./
+COPY frontend ./
 RUN npm run build
 
 # Stage 4: Python dependencies (cached layer)
 FROM base AS deps
 WORKDIR /app
-COPY requirements.txt .
+COPY panel/requirements.txt .
 # Use pip cache if available
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --no-cache-dir -r requirements.txt
@@ -129,7 +130,7 @@ COPY --from=deps /usr/local /usr/local
 COPY --from=frontend-build /app/dist ./static
 
 # Copy application code (changes most frequently)
-COPY . .
+COPY panel .
 
 EXPOSE 8000 443/tcp 443/udp
 
