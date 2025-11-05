@@ -35,6 +35,8 @@ class GostForwarder:
             if tunnel_id in self.active_forwards:
                 logger.warning(f"Forward for tunnel {tunnel_id} already exists, stopping it first")
                 self.stop_forward(tunnel_id)
+                # Wait a moment for port to be released
+                time.sleep(0.5)
             
             # Build gost command based on tunnel type
             # Forward directly to target (forward_to format: "host:port")
@@ -198,6 +200,18 @@ class GostForwarder:
                         pass
                     del self.active_forwards[log_key]
                 logger.info(f"Stopped gost forwarding for tunnel {tunnel_id}")
+        
+        # Also kill any gost processes that might be using the port (safety cleanup)
+        if tunnel_id in self.forward_configs:
+            config = self.forward_configs[tunnel_id]
+            local_port = config.get("local_port")
+            if local_port:
+                try:
+                    # Try to kill any gost processes that might be using this port
+                    # Use pkill to find and kill processes matching the pattern
+                    subprocess.run(['pkill', '-f', f'gost.*{local_port}'], timeout=3, check=False, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+                except Exception as e:
+                    logger.debug(f"Could not cleanup port {local_port} (non-critical): {e}")
         
         if tunnel_id in self.forward_configs:
             del self.forward_configs[tunnel_id]

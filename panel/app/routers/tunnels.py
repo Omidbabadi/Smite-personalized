@@ -300,6 +300,9 @@ async def update_tunnel(
                     try:
                         # Stop old forwarding
                         request.app.state.gost_forwarder.stop_forward(tunnel.id)
+                        # Wait a moment for port to be released
+                        import time
+                        time.sleep(0.5)
                         # Start new forwarding
                         logger.info(f"Restarting gost forwarding for tunnel {tunnel.id}: {tunnel.type}://:{panel_port} -> {forward_to}")
                         request.app.state.gost_forwarder.start_forward(
