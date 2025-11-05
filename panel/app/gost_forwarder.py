@@ -52,7 +52,6 @@ class GostForwarder:
                 # Use chain syntax: listen on local_port, forward to forward_host:forward_port
                 cmd = [
                     "/usr/local/bin/gost",
-                    "-log=stdout",
                     f"-L=tcp://0.0.0.0:{local_port}/{forward_host}:{forward_port}"
                 ]
             elif tunnel_type == "udp":
