@@ -6,7 +6,6 @@ from app.config import settings
 
 Base = declarative_base()
 
-# Database URL
 if settings.db_type == "sqlite":
     db_url = f"sqlite+aiosqlite:///{settings.db_path}"
 elif settings.db_type == "mysql":
@@ -20,7 +19,6 @@ AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_co
 
 async def init_db():
     """Initialize database tables"""
-    # Create data directory for SQLite
     if settings.db_type == "sqlite":
         os.makedirs(os.path.dirname(settings.db_path), exist_ok=True)
     

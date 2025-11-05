@@ -37,8 +37,8 @@ class RatholeAdapter:
     def __init__(self):
         self.config_dir = Path("/etc/smite-node/rathole")
         self.config_dir.mkdir(parents=True, exist_ok=True)
-        self.processes = {}  # Track running processes
-        self.usage_tracking = {}  # Track cumulative usage per tunnel
+        self.processes = {}
+        self.usage_tracking = {}
     
     def apply(self, tunnel_id: str, spec: Dict[str, Any]):
         """Apply Rathole tunnel"""
@@ -46,7 +46,6 @@ class RatholeAdapter:
         token = spec.get('token', '').strip()
         local_addr = spec.get('local_addr', '127.0.0.1:8080')
         
-        # Validate required fields
         if not remote_addr:
             raise ValueError("Rathole requires 'remote_addr' (panel address) in spec")
         if not token:
@@ -64,7 +63,6 @@ local_addr = "{local_addr}"
         with open(config_path, "w") as f:
             f.write(config)
         
-        # Start rathole
         try:
             proc = subprocess.Popen(
                 ["/usr/local/bin/rathole", "-c", str(config_path)],
@@ -92,7 +90,6 @@ local_addr = "{local_addr}"
         """Remove Rathole tunnel"""
         config_path = self.config_dir / f"{tunnel_id}.toml"
         
-        # Stop process if tracked
         if tunnel_id in self.processes:
             proc = self.processes[tunnel_id]
             try:
@@ -104,7 +101,6 @@ local_addr = "{local_addr}"
                 pass
             del self.processes[tunnel_id]
         
-        # Also try pkill as fallback
         try:
             subprocess.run(["pkill", "-f", f"rathole.*{tunnel_id}"], check=False, timeout=3)
         except:
@@ -135,32 +131,24 @@ local_addr = "{local_addr}"
             proc = self.processes[tunnel_id]
             try:
                 proc_info = psutil.Process(proc.pid)
-                # Get network connections to estimate traffic
                 connections = proc_info.connections()
                 
-                # Try to get network I/O from connections and process I/O
                 try:
                     io_counters = proc_info.io_counters()
-                    # For network processes, most I/O is network-related
-                    # Estimate network bytes (read_bytes + write_bytes for network process)
                     total_bytes = io_counters.read_bytes + io_counters.write_bytes
                     
-                    # Track cumulative usage
                     if tunnel_id not in self.usage_tracking:
                         self.usage_tracking[tunnel_id] = 0.0
                     
-                    # Update if we have new data (cumulative)
                     current_mb = total_bytes / (1024 * 1024)
                     if current_mb > self.usage_tracking[tunnel_id]:
                         self.usage_tracking[tunnel_id] = current_mb
                     
                     return self.usage_tracking[tunnel_id]
                 except (psutil.NoSuchProcess, psutil.AccessDenied, AttributeError, OSError):
-                    # Return last known usage if process is gone
                     if tunnel_id in self.usage_tracking:
                         return self.usage_tracking[tunnel_id]
             except (psutil.NoSuchProcess, psutil.AccessDenied, AttributeError, OSError):
-                # Return last known usage if process is gone
                 if tunnel_id in self.usage_tracking:
                     return self.usage_tracking[tunnel_id]
         return 0.0
@@ -174,7 +162,7 @@ class AdapterManager:
             "rathole": RatholeAdapter(),
         }
         self.active_tunnels: Dict[str, CoreAdapter] = {}
-        self.usage_tracking: Dict[str, float] = {}  # Track previous usage to calculate increments
+        self.usage_tracking: Dict[str, float] = {}
     
     def get_adapter(self, tunnel_type: str) -> Optional[CoreAdapter]:
         """Get adapter for tunnel type"""
@@ -195,7 +183,6 @@ class AdapterManager:
         logger.info(f"Using adapter: {adapter.name}")
         adapter.apply(tunnel_id, spec)
         self.active_tunnels[tunnel_id] = adapter
-        # Initialize usage tracking
         if tunnel_id not in self.usage_tracking:
             self.usage_tracking[tunnel_id] = 0.0
         logger.info(f"Tunnel {tunnel_id} applied successfully")
@@ -206,7 +193,6 @@ class AdapterManager:
             adapter = self.active_tunnels[tunnel_id]
             adapter.remove(tunnel_id)
             del self.active_tunnels[tunnel_id]
-        # Clean up usage tracking
         if tunnel_id in self.usage_tracking:
             del self.usage_tracking[tunnel_id]
     

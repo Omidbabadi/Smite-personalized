@@ -13,7 +13,6 @@ from app.routers import agent
 from app.hysteria2_client import Hysteria2Client
 from app.core_adapters import AdapterManager
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -26,7 +25,7 @@ async def usage_reporting_task(app: FastAPI):
     import asyncio
     while True:
         try:
-            await asyncio.sleep(60)  # Report every 60 seconds
+            await asyncio.sleep(60)
             
             adapter_manager = app.state.adapter_manager
             h2_client = app.state.h2_client
@@ -34,22 +33,16 @@ async def usage_reporting_task(app: FastAPI):
             if not adapter_manager or not h2_client or not hasattr(h2_client, 'node_id') or not h2_client.node_id:
                 continue
             
-            # Collect usage for all active tunnels
             for tunnel_id, adapter in adapter_manager.active_tunnels.items():
                 try:
                     usage_mb = adapter.get_usage_mb(tunnel_id)
                     
-                    # Calculate incremental usage
-                    # adapter_manager.usage_tracking stores MB as float
                     previous_mb = adapter_manager.usage_tracking.get(tunnel_id, 0.0)
                     
-                    # Both are in MB now, so compare directly
                     if usage_mb > previous_mb:
                         incremental_mb = usage_mb - previous_mb
-                        # Store in MB
                         adapter_manager.usage_tracking[tunnel_id] = usage_mb
                         
-                        # Convert to bytes for reporting
                         incremental_bytes = int(incremental_mb * 1024 * 1024)
                         
                         if incremental_bytes > 0:
@@ -59,7 +52,6 @@ async def usage_reporting_task(app: FastAPI):
                                 bytes_used=incremental_bytes
                             )
                     elif previous_mb == 0.0 and usage_mb > 0:
-                        # First time tracking, store but don't report
                         adapter_manager.usage_tracking[tunnel_id] = usage_mb
                 except Exception as e:
                     print(f"Warning: Failed to report usage for tunnel {tunnel_id}: {e}")
@@ -73,13 +65,11 @@ async def usage_reporting_task(app: FastAPI):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events"""
-    # Start Hysteria2 client and connect to panel
     h2_client = Hysteria2Client()
     try:
         await h2_client.start()
         app.state.h2_client = h2_client
         
-        # Auto-register with panel
         try:
             await h2_client.register_with_panel()
         except Exception as e:
@@ -89,20 +79,16 @@ async def lifespan(app: FastAPI):
         logger.error(f"Failed to start Hysteria2 client: {e}")
         logger.error("Node API will still be available, but panel connection will not work")
         logger.error("Make sure CA certificate is available at the configured path")
-        # Set h2_client to None so the node can still run
         app.state.h2_client = None
     
-    # Initialize adapter manager (always needed for tunnel management)
     adapter_manager = AdapterManager()
     app.state.adapter_manager = adapter_manager
     
-    # Start usage reporting task
     usage_task = asyncio.create_task(usage_reporting_task(app))
     app.state.usage_task = usage_task
     
     yield
     
-    # Shutdown
     if hasattr(app.state, 'usage_task'):
         app.state.usage_task.cancel()
         try:

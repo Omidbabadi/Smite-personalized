@@ -17,10 +17,9 @@ router = APIRouter()
 security = HTTPBearer()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# JWT settings
 SECRET_KEY = settings.secret_key
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7
 
 
 class LoginRequest(BaseModel):
@@ -91,7 +90,6 @@ async def get_current_user(
 @router.post("/login", response_model=LoginResponse)
 async def login(login_data: LoginRequest, db: AsyncSession = Depends(get_db)):
     """Login endpoint"""
-    # Find user
     result = await db.execute(select(Admin).where(Admin.username == login_data.username))
     user = result.scalar_one_or_none()
     
@@ -102,7 +100,6 @@ async def login(login_data: LoginRequest, db: AsyncSession = Depends(get_db)):
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    # Create access token
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": user.username}, expires_delta=access_token_expires

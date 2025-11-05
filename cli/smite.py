@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Smite Panel CLI
 """
@@ -11,7 +10,6 @@ import tempfile
 import shutil
 from pathlib import Path
 
-# Try to import requests, if not available, install it or use urllib
 try:
     import requests
 except ImportError:
@@ -29,34 +27,29 @@ else:
 
 def get_compose_file():
     """Get docker-compose file path"""
-    # Try common installation paths first
     possible_roots = [
-        Path("/opt/smite"),  # Standard install location
-        Path.cwd(),  # Current directory
-        Path(__file__).parent.parent,  # Relative to CLI location
+        Path("/opt/smite"),
+        Path.cwd(),
+        Path(__file__).parent.parent,
     ]
     
     for project_root in possible_roots:
-        # Try root docker-compose.yml first
         root_compose = project_root / "docker-compose.yml"
         if root_compose.exists():
             return root_compose
-        # Try docker/docker-compose.panel.yml
         docker_compose = project_root / "docker" / "docker-compose.panel.yml"
         if docker_compose.exists():
             return docker_compose
     
-    # If nothing found, return the most likely path
     return Path("/opt/smite") / "docker-compose.yml"
 
 
 def get_env_file():
     """Get .env file path"""
-    # Try common installation paths
     possible_roots = [
-        Path("/opt/smite"),  # Standard install location
-        Path.cwd(),  # Current directory
-        Path(__file__).parent.parent,  # Relative to CLI location
+        Path("/opt/smite"),
+        Path.cwd(),
+        Path(__file__).parent.parent,
     ]
     
     for project_root in possible_roots:
@@ -64,7 +57,6 @@ def get_env_file():
         if env_file.exists():
             return env_file
     
-    # If nothing found, return the most likely path
     return Path("/opt/smite") / ".env"
 
 
@@ -103,7 +95,6 @@ def cmd_admin_create(args):
     if args.password:
         password = args.password
     else:
-        # Ask for password twice for confirmation
         while True:
             password = getpass.getpass("Password: ")
             password_confirm = getpass.getpass("Confirm Password: ")
@@ -112,9 +103,7 @@ def cmd_admin_create(args):
             else:
                 print("Passwords do not match. Please try again.")
     
-    # First try: Use Docker exec (works on fresh installs)
     try:
-        # Check if container exists at all
         check_result = subprocess.run(
             ["docker", "ps", "-a", "--filter", "name=smite-panel", "--format", "{{.Names}}"],
             capture_output=True,
@@ -130,12 +119,11 @@ def cmd_admin_create(args):
                 print(f"Error: docker-compose.yml not found at {compose_file}")
                 sys.exit(1)
             print(f"Using compose file: {compose_file}")
-            # Run docker compose with visible output
             start_result = subprocess.run(
                 ["docker", "compose", "-f", str(compose_file), "up", "-d"],
-                capture_output=False,  # Show output in real-time
+                capture_output=False,
                 text=True,
-                timeout=120  # 2 minute timeout
+                timeout=120
             )
             if start_result.returncode != 0:
                 print(f"\nFailed to start panel (exit code: {start_result.returncode})")
@@ -143,8 +131,7 @@ def cmd_admin_create(args):
                 sys.exit(1)
             print("\nPanel started. Waiting for it to be ready...")
             import time
-            time.sleep(5)  # Give it a moment to start
-            # Re-check
+            time.sleep(5)
             check_result = subprocess.run(
                 ["docker", "ps", "-a", "--filter", "name=smite-panel", "--format", "{{.Names}}"],
                 capture_output=True,
@@ -157,7 +144,6 @@ def cmd_admin_create(args):
         
         container_name = check_result.stdout.strip()
         
-        # Wait for container to be running (not restarting)
         max_wait = 30
         waited = 0
         import time
@@ -208,17 +194,12 @@ def cmd_admin_create(args):
         if container_name:
             print(f"Creating admin via Docker container ({container_name})...")
             
-            # Create Python script to run inside container
-            # Use repr to safely escape strings for Python code
             username_repr = repr(username)
             password_repr = repr(password)
             
-            # Create a simpler one-liner script (better for docker exec)
-            # Write script to temp file inside container
             script_content = f"""import asyncio
 import sys
 import os
-# Add /app to Python path so we can import app module
 sys.path.insert(0, '/app')
 from app.database import AsyncSessionLocal, init_db
 from app.models import Admin
@@ -228,7 +209,6 @@ from passlib.context import CryptContext
 username = {username_repr}
 password = {password_repr}
 
-# Truncate password to 72 bytes if needed (bcrypt limit)
 if isinstance(password, str):
     password_bytes = password.encode('utf-8')
     if len(password_bytes) > 72:
@@ -258,13 +238,11 @@ async def create():
 asyncio.run(create())
 """
             
-            # Write script to temp file and execute (more reliable than -c with multiline)
             with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as tmp_file:
                 tmp_file.write(script_content)
                 tmp_file_path = tmp_file.name
             
             try:
-                # Copy script to container
                 copy_proc = subprocess.run(
                     ["docker", "cp", tmp_file_path, f"{container_name}:/tmp/create_admin.py"],
                     capture_output=True,
@@ -273,7 +251,6 @@ asyncio.run(create())
                 )
                 
                 if copy_proc.returncode != 0:
-                    # Fallback to direct exec with base64 encoded script
                     import base64
                     script_b64 = base64.b64encode(script_content.encode()).decode()
                     script_one_liner = f"PYTHONPATH=/app echo {script_b64} | base64 -d | python3"
@@ -284,7 +261,6 @@ asyncio.run(create())
                         timeout=30
                     )
                 else:
-                    # Execute script in container with PYTHONPATH set
                     proc = subprocess.run(
                         ["docker", "exec", "-e", "PYTHONPATH=/app", container_name, "python", "/tmp/create_admin.py"],
                         capture_output=True,
@@ -292,7 +268,6 @@ asyncio.run(create())
                         timeout=30
                     )
             finally:
-                # Clean up temp file
                 try:
                     os.unlink(tmp_file_path)
                 except:
@@ -308,7 +283,6 @@ asyncio.run(create())
                     sys.exit(1)
                 print(f"Warning: Docker exec failed: {error_msg}")
                 print("Checking container logs...")
-                # Show last few lines of logs
                 log_proc = subprocess.run(
                     ["docker", "logs", "--tail", "10", container_name],
                     capture_output=True,
@@ -333,13 +307,11 @@ asyncio.run(create())
         print(f"Warning: Docker error: {e}")
         print("Trying local method...")
     
-    # Second try: Use local dependencies
     try:
-        # Try multiple possible locations
         possible_roots = [
-            Path(__file__).parent.parent,  # cli/../ = project root
-            Path("/opt/smite"),  # Standard install location
-            Path.cwd(),  # Current directory
+            Path(__file__).parent.parent,
+            Path("/opt/smite"),
+            Path.cwd(),
         ]
         
         panel_path = None
@@ -397,7 +369,6 @@ def cmd_status(args):
     print("Panel Status:")
     print("-" * 50)
     
-    # Check docker
     result = subprocess.run(["docker", "ps", "--filter", "name=smite-panel", "--format", "{{.Status}}"], 
                           capture_output=True, text=True)
     if result.stdout.strip():
@@ -405,7 +376,6 @@ def cmd_status(args):
     else:
         print("Docker: Not running")
     
-    # Check API
     try:
         panel_url = get_panel_url()
         
@@ -419,7 +389,6 @@ def cmd_status(args):
             else:
                 print("API: Not responding")
         else:
-            # Fallback to urllib
             req = urllib.request.Request(f"{panel_url}/api/status")
             with urllib.request.urlopen(req, timeout=2) as response:
                 data = json_lib.loads(response.read().decode())
@@ -469,26 +438,20 @@ def main():
     parser = argparse.ArgumentParser(description="Smite Panel CLI")
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
     
-    # admin create
     admin_parser = subparsers.add_parser("admin", help="Admin management")
     admin_subparsers = admin_parser.add_subparsers(dest="admin_action")
     create_parser = admin_subparsers.add_parser("create", help="Create admin user")
     create_parser.add_argument("--username", help="Username")
     create_parser.add_argument("--password", help="Password")
     
-    # status
     subparsers.add_parser("status", help="Show system status")
     
-    # update
     subparsers.add_parser("update", help="Update panel")
     
-    # edit
     subparsers.add_parser("edit", help="Edit docker-compose.yml")
     
-    # edit-env
     subparsers.add_parser("edit-env", help="Edit .env file")
     
-    # logs
     logs_parser = subparsers.add_parser("logs", help="View logs")
     logs_parser.add_argument("-f", "--follow", action="store_true", help="Follow logs")
     

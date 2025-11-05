@@ -14,11 +14,9 @@ router = APIRouter()
 @router.get("")
 async def get_status(db: AsyncSession = Depends(get_db)):
     """Get system status"""
-    # System stats
     cpu_percent = psutil.cpu_percent(interval=1)
     memory = psutil.virtual_memory()
     
-    # Database stats
     tunnel_result = await db.execute(select(func.count(Tunnel.id)))
     total_tunnels = tunnel_result.scalar() or 0
     

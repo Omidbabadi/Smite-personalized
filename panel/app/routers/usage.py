@@ -27,20 +27,16 @@ class UsageResponse(BaseModel):
 @router.post("/push")
 async def push_usage(usage_data: UsagePush, db: AsyncSession = Depends(get_db)):
     """Node pushes usage data"""
-    # Verify tunnel exists
     result = await db.execute(select(Tunnel).where(Tunnel.id == usage_data.tunnel_id))
     tunnel = result.scalar_one_or_none()
     if not tunnel:
         raise HTTPException(status_code=404, detail="Tunnel not found")
     
-    # Update tunnel usage
     tunnel.used_mb += usage_data.bytes_used / (1024 * 1024)
     
-    # Check quota
     if tunnel.quota_mb > 0 and tunnel.used_mb >= tunnel.quota_mb:
         tunnel.status = "error"
     
-    # Record usage
     usage = Usage(
         tunnel_id=usage_data.tunnel_id,
         node_id=usage_data.node_id,

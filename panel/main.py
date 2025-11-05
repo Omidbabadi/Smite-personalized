@@ -22,7 +22,6 @@ from app.gost_forwarder import gost_forwarder
 from app.rathole_server import rathole_server_manager
 import logging
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -33,15 +32,12 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events"""
-    # Initialize database
     await init_db()
     
-    # Start Hysteria2 server (for cert generation - always needed for CA cert)
     h2_server = Hysteria2Server()
     await h2_server.start()
     app.state.h2_server = h2_server
     
-    # Ensure CA certificate is generated on startup
     try:
         cert_path = Path(settings.hysteria2_cert_path)
         if not cert_path.is_absolute():
@@ -55,30 +51,22 @@ async def lifespan(app: FastAPI):
             logger.info(f"CA certificate generated at {cert_path}")
     except Exception as e:
         logger.warning(f"Failed to generate CA certificate on startup: {e}")
-        # Don't fail startup if cert generation fails
     
-    # Initialize gost forwarder
     app.state.gost_forwarder = gost_forwarder
     
-    # Initialize Rathole server manager
     app.state.rathole_server_manager = rathole_server_manager
     
-    # Restore active tunnels' forwarding on startup
     await _restore_forwards()
     
-    # Restore active Rathole servers on startup
     await _restore_rathole_servers()
     
     yield
     
-    # Shutdown
     if hasattr(app.state, 'h2_server'):
         await app.state.h2_server.stop()
     
-    # Stop all gost forwarding
     gost_forwarder.cleanup_all()
     
-    # Stop all Rathole servers
     rathole_server_manager.cleanup_all()
 
 
@@ -93,28 +81,23 @@ async def _restore_forwards():
             
             for tunnel in tunnels:
                 logger.info(f"Checking tunnel {tunnel.id}: type={tunnel.type}, core={tunnel.core}")
-                # Only restore xray tunnels (tcp, udp, ws, grpc, tcpmux) - these use gost and forward directly
                 needs_gost_forwarding = tunnel.type in ["tcp", "udp", "ws", "grpc", "tcpmux"] and tunnel.core == "xray"
                 if not needs_gost_forwarding:
                     continue
                 
-                # listen_port: panel port where clients connect
-                # forward_to: target address (can be from forward_to field or constructed from remote_ip:remote_port)
                 listen_port = tunnel.spec.get("listen_port")
                 forward_to = tunnel.spec.get("forward_to")
                 
-                # If forward_to not set, construct from remote_ip and remote_port (Shifter pattern)
                 if not forward_to:
                     remote_ip = tunnel.spec.get("remote_ip", "127.0.0.1")
                     remote_port = tunnel.spec.get("remote_port", 8080)
                     forward_to = f"{remote_ip}:{remote_port}"
                 
-                panel_port = listen_port or tunnel.spec.get("remote_port")  # Fallback to remote_port for backward compat
+                panel_port = listen_port or tunnel.spec.get("remote_port")
                 if not panel_port or not forward_to:
                     logger.warning(f"Tunnel {tunnel.id}: Missing panel_port or forward_to, skipping restore")
                     continue
                 
-                # Start gost forwarding directly to target
                 try:
                     logger.info(f"Restoring gost forwarding for tunnel {tunnel.id}: {tunnel.type}://:{panel_port} -> {forward_to}")
                     gost_forwarder.start_forward(
@@ -138,7 +121,6 @@ async def _restore_rathole_servers():
             tunnels = result.scalars().all()
             
             for tunnel in tunnels:
-                # Only restore Rathole tunnels
                 if tunnel.core != "rathole":
                     continue
                 
@@ -149,7 +131,6 @@ async def _restore_rathole_servers():
                 if not remote_addr or not token or not proxy_port:
                     continue
                 
-                # Start Rathole server
                 rathole_server_manager.start_server(
                     tunnel_id=tunnel.id,
                     remote_addr=remote_addr,
@@ -169,7 +150,6 @@ app = FastAPI(
     redoc_url="/redoc" if settings.docs_enabled else None,
 )
 
-# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -178,7 +158,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Routes
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(panel.router, prefix="/api/panel", tags=["panel"])
 app.include_router(nodes.router, prefix="/api/nodes", tags=["nodes"])
@@ -186,30 +165,24 @@ app.include_router(tunnels.router, prefix="/api/tunnels", tags=["tunnels"])
 app.include_router(status.router, prefix="/api/status", tags=["status"])
 app.include_router(logs.router, prefix="/api/logs", tags=["logs"])
 
-# Serve frontend static files if available
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 static_path = Path(static_dir)
 
 if static_path.exists() and (static_path / "index.html").exists():
-    # Mount static files
     app.mount("/static", StaticFiles(directory=static_path), name="static-assets")
     
-    # Serve index.html for all non-API routes (SPA routing)
     from fastapi.responses import FileResponse
     
     @app.get("/{full_path:path}")
     async def serve_frontend(full_path: str):
         """Serve frontend for all non-API routes"""
-        # Don't interfere with API routes
         if full_path.startswith("api/") or full_path.startswith("docs") or full_path.startswith("redoc") or full_path.startswith("openapi.json"):
             raise HTTPException(status_code=404)
         
-        # Check if it's a static file request
         file_path = static_path / full_path
         if file_path.exists() and file_path.is_file():
             return FileResponse(file_path)
         
-        # Otherwise serve index.html for SPA routing
         index_path = static_path / "index.html"
         if index_path.exists():
             return FileResponse(index_path)

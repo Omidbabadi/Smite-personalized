@@ -16,10 +16,10 @@ class Node(Base):
     id = Column(String, primary_key=True, default=generate_uuid)
     name = Column(String, nullable=False)
     fingerprint = Column(String, unique=True, nullable=False)
-    status = Column(String, default="pending")  # pending, active, offline
+    status = Column(String, default="pending")
     registered_at = Column(DateTime, default=datetime.utcnow)
     last_seen = Column(DateTime, default=datetime.utcnow)
-    node_metadata = Column("metadata", JSON, default=dict)  # Use "metadata" as column name in DB, but node_metadata as attribute
+    node_metadata = Column("metadata", JSON, default=dict)
     
 
 class Tunnel(Base):
@@ -27,15 +27,15 @@ class Tunnel(Base):
     
     id = Column(String, primary_key=True, default=generate_uuid)
     name = Column(String, nullable=False)
-    core = Column(String, nullable=False)  # xray, rathole
-    type = Column(String, nullable=False)  # tcp, udp, ws, grpc, tcpmux, rathole
+    core = Column(String, nullable=False)
+    type = Column(String, nullable=False)
     node_id = Column(String, nullable=False)
     spec = Column(JSON, nullable=False)
     quota_mb = Column(Float, default=0)
     used_mb = Column(Float, default=0)
     expires_at = Column(DateTime, nullable=True)
-    status = Column(String, default="pending")  # pending, active, error, expired
-    error_message = Column(Text, nullable=True)  # Store error details
+    status = Column(String, default="pending")
+    error_message = Column(Text, nullable=True)
     revision = Column(Integer, default=1)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -21,17 +21,13 @@ class Hysteria2Server:
     
     async def start(self):
         """Start Hysteria2 server"""
-        # Ensure certs exist
         cert_path = Path(self.cert_path)
         key_path = Path(self.key_path)
         
         if not cert_path.exists() or not key_path.exists():
-            # Generate self-signed cert for CA
             await self._generate_certs()
         
-        # Start server (simplified - actual Hysteria2 integration would use their library)
         logger.info(f"Hysteria2 server starting on port {self.port}")
-        # TODO: Integrate with actual Hysteria2 library
     
     async def stop(self):
         """Stop Hysteria2 server"""
@@ -48,13 +44,10 @@ class Hysteria2Server:
         from datetime import datetime, timedelta
         import os
         
-        # Resolve paths (handle relative paths)
         cert_path = Path(self.cert_path)
         key_path = Path(self.key_path)
         
-        # If relative paths, resolve from current working directory
         if not cert_path.is_absolute():
-            # Try to resolve from app directory
             base_dir = Path(os.getcwd())
             cert_path = base_dir / cert_path
             key_path = base_dir / key_path
@@ -62,21 +55,17 @@ class Hysteria2Server:
         logger.info(f"Generating certificate at: {cert_path}")
         logger.info(f"Generating key at: {key_path}")
         
-        # Create directories
         cert_path.parent.mkdir(parents=True, exist_ok=True)
         key_path.parent.mkdir(parents=True, exist_ok=True)
         
-        # Ensure parent directories are writable
         if not os.access(cert_path.parent, os.W_OK):
             raise PermissionError(f"Cannot write to {cert_path.parent}")
         
-        # Generate private key
         private_key = rsa.generate_private_key(
             public_exponent=65537,
             key_size=2048,
         )
         
-        # Create certificate
         subject = issuer = x509.Name([
             x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
             x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "CA"),
@@ -102,12 +91,10 @@ class Hysteria2Server:
             critical=True,
         ).sign(private_key, hashes.SHA256())
         
-        # Write certificate
         try:
             cert_bytes = cert.public_bytes(serialization.Encoding.PEM)
             with open(cert_path, "wb") as f:
                 f.write(cert_bytes)
-            # Verify write
             if cert_path.stat().st_size == 0:
                 raise IOError(f"Certificate file is empty after write: {cert_path}")
             logger.info(f"Certificate written successfully ({cert_path.stat().st_size} bytes)")
@@ -115,7 +102,6 @@ class Hysteria2Server:
             logger.error(f"Error writing certificate: {e}")
             raise
         
-        # Write private key
         try:
             key_bytes = private_key.private_bytes(
                 encoding=serialization.Encoding.PEM,
@@ -124,7 +110,6 @@ class Hysteria2Server:
             )
             with open(key_path, "wb") as f:
                 f.write(key_bytes)
-            # Verify write
             if key_path.stat().st_size == 0:
                 raise IOError(f"Key file is empty after write: {key_path}")
             logger.info(f"Key written successfully ({key_path.stat().st_size} bytes)")
@@ -132,7 +117,6 @@ class Hysteria2Server:
             logger.error(f"Error writing key: {e}")
             raise
         
-        # Update paths in instance
         self.cert_path = str(cert_path)
         self.key_path = str(key_path)
         

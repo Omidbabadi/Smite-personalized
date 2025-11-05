@@ -19,7 +19,6 @@ class Hysteria2Client:
         """
         Send request to node via HTTPS
         """
-        # Get node info from database
         async with AsyncSessionLocal() as session:
             result = await session.execute(select(Node).where(Node.id == node_id))
             node = result.scalar_one_or_none()
@@ -27,10 +26,8 @@ class Hysteria2Client:
             if not node:
                 return {"status": "error", "message": f"Node {node_id} not found"}
             
-            # Extract node address from metadata or use default
             node_address = node.node_metadata.get("api_address", f"http://localhost:8888") if node.node_metadata else f"http://localhost:8888"
             
-            # Construct full URL
             if not node_address.startswith("http"):
                 node_address = f"http://{node_address}"
             
@@ -44,7 +41,6 @@ class Hysteria2Client:
             except httpx.RequestError as e:
                 return {"status": "error", "message": f"Network error: {str(e)}"}
             except httpx.HTTPStatusError as e:
-                # Try to get error details from response body
                 try:
                     error_detail = e.response.json().get("detail", str(e))
                 except:

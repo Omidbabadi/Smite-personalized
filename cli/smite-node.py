@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Smite Node CLI
 """
@@ -11,8 +10,6 @@ from pathlib import Path
 
 def get_compose_file():
     """Get docker-compose file path"""
-    # Assume node is installed in /opt/smite-node or similar
-    # For now, use relative path
     node_dir = Path(__file__).parent.parent / "node"
     return node_dir / "docker-compose.yml"
 
@@ -40,7 +37,6 @@ def cmd_status(args):
     print("Node Status:")
     print("-" * 50)
     
-    # Check docker
     result = subprocess.run(["docker", "ps", "--filter", "name=smite-node", "--format", "{{.Status}}"], 
                           capture_output=True, text=True)
     if result.stdout.strip():
@@ -48,7 +44,6 @@ def cmd_status(args):
     else:
         print("Docker: Not running")
     
-    # Check API
     try:
         try:
             import requests
@@ -110,19 +105,14 @@ def main():
     parser = argparse.ArgumentParser(description="Smite Node CLI")
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
     
-    # status
     subparsers.add_parser("status", help="Show node status")
     
-    # update
     subparsers.add_parser("update", help="Update node")
     
-    # edit
     subparsers.add_parser("edit", help="Edit docker-compose.yml")
     
-    # edit-env
     subparsers.add_parser("edit-env", help="Edit .env file")
     
-    # logs
     logs_parser = subparsers.add_parser("logs", help="View logs")
     logs_parser.add_argument("-f", "--follow", action="store_true", help="Follow logs")
     

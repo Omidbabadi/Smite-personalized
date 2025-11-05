@@ -8,7 +8,6 @@ import io
 
 router = APIRouter()
 
-# In-memory log buffer (in production, use proper logging aggregation)
 log_buffer = []
 
 
@@ -20,12 +19,10 @@ class MemoryHandler(logging.Handler):
             "level": record.levelname,
             "message": self.format(record)
         })
-        # Keep only last 1000 entries
         if len(log_buffer) > 1000:
             log_buffer.pop(0)
 
 
-# Setup handler
 handler = MemoryHandler()
 handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
 logging.getLogger().addHandler(handler)

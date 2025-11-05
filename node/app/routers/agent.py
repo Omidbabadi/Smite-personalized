@@ -74,15 +74,12 @@ async def push_usage(data: UsagePush, request: Request):
     """Push usage data to panel"""
     adapter_manager = request.app.state.adapter_manager
     
-    # Get actual usage from adapter
     try:
         adapter = adapter_manager.active_tunnels.get(data.tunnel_id)
         if adapter:
             usage_mb = adapter.get_usage_mb(data.tunnel_id)
             data.bytes_used = int(usage_mb * 1024 * 1024)
         
-        # TODO: Send usage data back to panel via HTTPS
-        # For now, just acknowledge
         return {"status": "ok", "bytes_used": data.bytes_used}
     except Exception as e:
         return {"status": "error", "message": str(e)}

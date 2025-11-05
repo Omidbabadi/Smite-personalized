@@ -17,7 +17,7 @@ class NodeCreate(BaseModel):
     name: str
     ip_address: str
     api_port: int = 8888
-    metadata: dict = {}  # Keep as metadata in API, maps to node_metadata in model
+    metadata: dict = {}
 
 
 class NodeResponse(BaseModel):
@@ -27,7 +27,7 @@ class NodeResponse(BaseModel):
     status: str
     registered_at: datetime
     last_seen: datetime
-    metadata: dict  # Maps to node_metadata in model
+    metadata: dict
     
     class Config:
         from_attributes = True
@@ -39,22 +39,18 @@ async def create_node(node: NodeCreate, db: AsyncSession = Depends(get_db)):
     """Register a new node"""
     import hashlib
     
-    # Generate fingerprint from IP and port for uniqueness
     fingerprint_data = f"{node.ip_address}:{node.api_port}".encode()
     fingerprint = hashlib.sha256(fingerprint_data).hexdigest()[:16]
     
-    # Check if fingerprint exists
     result = await db.execute(select(Node).where(Node.fingerprint == fingerprint))
     existing = result.scalar_one_or_none()
     
-    # Update metadata with IP and API port
     metadata = node.metadata.copy() if node.metadata else {}
     metadata["api_address"] = f"http://{node.ip_address}:{node.api_port}"
     metadata["ip_address"] = node.ip_address
     metadata["api_port"] = node.api_port
     
     if existing:
-        # Update last_seen and metadata
         existing.last_seen = datetime.utcnow()
         existing.status = "active"
         existing.node_metadata.update(metadata)
@@ -70,7 +66,6 @@ async def create_node(node: NodeCreate, db: AsyncSession = Depends(get_db)):
             metadata=existing.node_metadata or {}
         )
     
-    # Create new node
     db_node = Node(
         name=node.name,
         fingerprint=fingerprint,
