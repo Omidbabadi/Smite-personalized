@@ -17,7 +17,7 @@ class GostForwarder:
         self.active_forwards: Dict[str, subprocess.Popen] = {}
         self.forward_configs: Dict[str, dict] = {}
     
-    def start_forward(self, tunnel_id: str, local_port: int, forward_to: str, tunnel_type: str = "tcp") -> bool:
+    def start_forward(self, tunnel_id: str, local_port: int, forward_to: str, tunnel_type: str = "tcp", path: str = None) -> bool:
         """
         Start forwarding using gost - forwards directly to target (no node)
 
@@ -26,6 +26,7 @@ class GostForwarder:
             local_port: Port on panel to listen on
             forward_to: Target address:port (e.g., "127.0.0.1:9999" or "1.2.3.4:443")
             tunnel_type: Type of forwarding (tcp, udp, ws, grpc)
+            path: Optional path for WS tunnels (e.g., "/" or "/path")
 
         Returns:
             True if started successfully
@@ -62,11 +63,14 @@ class GostForwarder:
                 else:
                     forward_host = forward_to
                     forward_port = "8080"
+                ws_path = path or "/"
+                if not ws_path.startswith("/"):
+                    ws_path = "/" + ws_path
                 cmd = [
                     "/usr/local/bin/gost",
-                    f"-L=ws://0.0.0.0:{local_port}/tcp://{forward_host}:{forward_port}"
+                    f"-L=ws://0.0.0.0:{local_port}{ws_path}/tcp://{forward_host}:{forward_port}"
                 ]
-                logger.info(f"WS tunnel: Using plain ws:// protocol (always plain WS, ignores HTTPS settings) - {local_port} -> {forward_host}:{forward_port}")
+                logger.info(f"WS tunnel: Using plain ws:// protocol (always plain WS, ignores HTTPS settings) - {local_port}{ws_path} -> {forward_host}:{forward_port}")
             elif tunnel_type == "grpc":
                 if ":" in forward_to:
                     forward_host, forward_port = forward_to.rsplit(":", 1)
@@ -252,7 +256,8 @@ class GostForwarder:
             self.forward_configs[tunnel_id] = {
                 "local_port": local_port,
                 "forward_to": forward_to,
-                "tunnel_type": tunnel_type
+                "tunnel_type": tunnel_type,
+                "path": path
             }
             
             logger.info(f"Started gost forwarding for tunnel {tunnel_id}: {tunnel_type}://:{local_port} -> {forward_to}, PID={proc.pid}")
@@ -311,7 +316,8 @@ class GostForwarder:
                     tunnel_id=tunnel_id,
                     local_port=config["local_port"],
                     forward_to=config["forward_to"],
-                    tunnel_type=config["tunnel_type"]
+                    tunnel_type=config["tunnel_type"],
+                    path=config.get("path")
                 )
                 return True
             except Exception as e:

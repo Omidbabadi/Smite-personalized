@@ -198,11 +198,13 @@ async def create_tunnel(tunnel: TunnelCreate, request: Request, db: AsyncSession
                 if panel_port and forward_to and hasattr(request.app.state, 'gost_forwarder'):
                     try:
                         logger.info(f"Starting gost forwarding for tunnel {db_tunnel.id}: {db_tunnel.type}://:{panel_port} -> {forward_to}")
+                        ws_path = db_tunnel.spec.get("path") if db_tunnel.type == "ws" else None
                         request.app.state.gost_forwarder.start_forward(
                             tunnel_id=db_tunnel.id,
                             local_port=int(panel_port),
                             forward_to=forward_to,
-                            tunnel_type=db_tunnel.type
+                            tunnel_type=db_tunnel.type,
+                            path=ws_path
                         )
                         logger.info(f"Successfully started gost forwarding for tunnel {db_tunnel.id}")
                     except Exception as e:
@@ -309,11 +311,13 @@ async def update_tunnel(
                         import time
                         time.sleep(0.5)
                         logger.info(f"Restarting gost forwarding for tunnel {tunnel.id}: {tunnel.type}://:{panel_port} -> {forward_to}")
+                        ws_path = tunnel.spec.get("path") if tunnel.type == "ws" else None
                         request.app.state.gost_forwarder.start_forward(
                             tunnel_id=tunnel.id,
                             local_port=int(panel_port),
                             forward_to=forward_to,
-                            tunnel_type=tunnel.type
+                            tunnel_type=tunnel.type,
+                            path=ws_path
                         )
                         tunnel.status = "active"
                         tunnel.error_message = None
@@ -540,31 +544,27 @@ async def update_tunnel(tunnel_id: str, tunnel: TunnelUpdate, request: Request, 
                     needs_rathole_server = db_tunnel.core == "rathole"
                     
                     if needs_gost_forwarding:
-                        remote_port = db_tunnel.spec.get("remote_port") or db_tunnel.spec.get("listen_port")
-                        if remote_port and hasattr(request.app.state, 'gost_forwarder'):
-                            node_address = node.node_metadata.get("ip_address") if node.node_metadata else None
-                            if not node_address:
-                                api_address = node.node_metadata.get("api_address", "") if node.node_metadata else ""
-                                if api_address:
-                                    if "://" in api_address:
-                                        api_address = api_address.split("://")[-1]
-                                    if ":" in api_address:
-                                        node_address = api_address.split(":")[0]
-                                    else:
-                                        node_address = api_address
-                            
-                            if node_address:
-                                try:
-                                    request.app.state.gost_forwarder.start_forward(
-                                        tunnel_id=db_tunnel.id,
-                                        local_port=int(remote_port),
-                                        node_address=node_address,
-                                        remote_port=int(remote_port),
-                                        tunnel_type=db_tunnel.type
-                                    )
-                                except Exception as e:
-                                    import logging
-                                    logging.error(f"Failed to start gost forwarding: {e}")
+                        forward_to = db_tunnel.spec.get("forward_to")
+                        if not forward_to:
+                            remote_ip = db_tunnel.spec.get("remote_ip", "127.0.0.1")
+                            remote_port = db_tunnel.spec.get("remote_port", 8080)
+                            forward_to = f"{remote_ip}:{remote_port}"
+                        
+                        panel_port = db_tunnel.spec.get("listen_port") or db_tunnel.spec.get("remote_port")
+                        
+                        if panel_port and forward_to and hasattr(request.app.state, 'gost_forwarder'):
+                            try:
+                                ws_path = db_tunnel.spec.get("path") if db_tunnel.type == "ws" else None
+                                request.app.state.gost_forwarder.start_forward(
+                                    tunnel_id=db_tunnel.id,
+                                    local_port=int(panel_port),
+                                    forward_to=forward_to,
+                                    tunnel_type=db_tunnel.type,
+                                    path=ws_path
+                                )
+                            except Exception as e:
+                                import logging
+                                logging.error(f"Failed to start gost forwarding: {e}")
                     
                     elif needs_rathole_server:
                         remote_addr = db_tunnel.spec.get("remote_addr")
