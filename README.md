@@ -6,6 +6,13 @@
   **A modern, Docker-first tunneling control panel for managing tunnels (TCP, UDP, gRPC, TCPMux, Rathole).**
   
   [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+  [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
+  [![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-009688.svg)](https://fastapi.tiangolo.com/)
+  [![React](https://img.shields.io/badge/React-18+-61DAFB.svg)](https://reactjs.org/)
+  [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-3178C6.svg)](https://www.typescriptlang.org/)
+  [![Docker](https://img.shields.io/badge/Docker-24.0+-2496ED.svg)](https://www.docker.com/)
+  [![Nginx](https://img.shields.io/badge/Nginx-1.25+-009639.svg)](https://www.nginx.com/)
+  [![SQLite](https://img.shields.io/badge/SQLite-3.42+-003B57.svg)](https://www.sqlite.org/)
 </div>
 
 ---
@@ -18,18 +25,6 @@
 - **CLI Tools**: Powerful command-line tools for management
 - **Node Support**: Easy reverse tunnel setup with Rathole nodes
 - **GOST Forwarding**: Direct forwarding without nodes for better performance
-
----
-
-## 🛠️ Tech Stack
-
-- **Backend**: Python (FastAPI), SQLAlchemy, Alembic
-- **Frontend**: React, TypeScript, Tailwind CSS
-- **Containerization**: Docker, Docker Compose
-- **Reverse Proxy**: Nginx
-- **Tunneling**: GOST, Rathole
-- **Database**: SQLite
-- **SSL/TLS**: Let's Encrypt (Certbot)
 
 ---
 
