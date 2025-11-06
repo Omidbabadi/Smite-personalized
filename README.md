@@ -3,7 +3,7 @@
 <div align="center">
   <img src="assets/SmiteD.png" alt="Smite Logo" width="200"/>
   
-  **A modern, Docker-first tunneling control panel for managing tunnels (TCP, UDP, gRPC, TCPMux, Rathole).**
+  **Modern tunnel management built on GOST and Rathole, featuring an intuitive WebUI, fast CLI, and open-source freedom.**
   
   [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
   [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
