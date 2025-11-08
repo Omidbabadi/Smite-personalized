@@ -93,7 +93,19 @@ RUN ARCH=$(uname -m) && \
     echo "Gost installed successfully at /usr/local/bin/gost" && \
     /usr/local/bin/gost -V || echo "Gost version check skipped"
 
-# Stage 3: Frontend build (cached layer)
+# Stage 3: Install backhaul (cached layer)
+FROM base AS backhaul-bin
+ARG BACKHAUL_MODULE=github.com/zZedix/backhaul
+ARG BACKHAUL_VERSION=latest
+ENV GO111MODULE=on
+ENV GOBIN=/usr/local/bin
+RUN apt-get update && apt-get install -y golang && rm -rf /var/lib/apt/lists/* && \
+    go install ${BACKHAUL_MODULE}/cmd/backhaul@${BACKHAUL_VERSION} && \
+    if [ ! -x /usr/local/bin/backhaul ]; then echo "Backhaul binary missing after installation"; exit 1; fi && \
+    chmod +x /usr/local/bin/backhaul && \
+    /usr/local/bin/backhaul --version || true
+
+# Stage 4: Frontend build (cached layer)
 FROM node:18-alpine AS frontend-build
 WORKDIR /app
 # Build context is now root, so frontend/ is directly accessible
@@ -107,7 +119,7 @@ RUN --mount=type=cache,target=/root/.npm \
 COPY frontend ./
 RUN npm run build
 
-# Stage 4: Python dependencies (cached layer)
+# Stage 5: Python dependencies (cached layer)
 FROM base AS deps
 WORKDIR /app
 COPY panel/requirements.txt .
@@ -115,13 +127,14 @@ COPY panel/requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --no-cache-dir -r requirements.txt
 
-# Stage 5: Final image
+# Stage 6: Final image
 FROM base
 WORKDIR /app
 
 # Copy binaries from binaries stage
 COPY --from=binaries /usr/local/bin/rathole /usr/local/bin/rathole
 COPY --from=binaries /usr/local/bin/gost /usr/local/bin/gost
+COPY --from=backhaul-bin /usr/local/bin/backhaul /usr/local/bin/backhaul
 
 # Copy Python dependencies from deps stage
 COPY --from=deps /usr/local /usr/local

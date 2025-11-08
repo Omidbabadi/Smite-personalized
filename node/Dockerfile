@@ -37,7 +37,19 @@ RUN ARCH=$(uname -m) && \
     rathole --version && \
     rm -rf /tmp/rathole*
 
-# Stage 3: Python dependencies (cached layer)
+# Stage 3: Install backhaul (cached layer)
+FROM base AS backhaul-bin
+ARG BACKHAUL_MODULE=github.com/zZedix/backhaul
+ARG BACKHAUL_VERSION=latest
+ENV GO111MODULE=on
+ENV GOBIN=/usr/local/bin
+RUN apt-get update && apt-get install -y golang && rm -rf /var/lib/apt/lists/* && \
+    go install ${BACKHAUL_MODULE}/cmd/backhaul@${BACKHAUL_VERSION} && \
+    if [ ! -x /usr/local/bin/backhaul ]; then echo "Backhaul binary missing after installation"; exit 1; fi && \
+    chmod +x /usr/local/bin/backhaul && \
+    /usr/local/bin/backhaul --version || true
+
+# Stage 4: Python dependencies (cached layer)
 FROM base AS deps
 WORKDIR /app
 COPY requirements.txt .
@@ -45,12 +57,13 @@ COPY requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --no-cache-dir -r requirements.txt
 
-# Stage 4: Final image
+# Stage 5: Final image
 FROM base
 WORKDIR /app
 
 # Copy binaries from binary stages
 COPY --from=rathole-bin /usr/local/bin/rathole /usr/local/bin/rathole
+COPY --from=backhaul-bin /usr/local/bin/backhaul /usr/local/bin/backhaul
 
 # Copy Python dependencies from deps stage
 COPY --from=deps /usr/local /usr/local

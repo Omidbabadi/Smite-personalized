@@ -6,6 +6,9 @@ on:
       - main
     tags:
       - 'v*'
+    paths-ignore:
+      - README.md
+      - docs/**
   workflow_dispatch:
 
 env:
@@ -14,6 +17,7 @@ env:
 
 jobs:
   build-and-push:
+    if: github.ref != 'refs/heads/backhaul'
     runs-on: ubuntu-latest
     permissions:
       contents: read
