@@ -101,7 +101,7 @@ ENV GO111MODULE=on
 ENV GOBIN=/usr/local/bin
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y golang; \
+    apt-get install -y git golang; \
     rm -rf /var/lib/apt/lists/*; \
     mkdir -p /opt/backhaul; \
     GOBIN=/tmp/backhaul-bin go install ${BACKHAUL_MODULE}/cmd/backhaul@${BACKHAUL_VERSION}; \
