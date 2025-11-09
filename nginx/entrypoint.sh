@@ -12,9 +12,9 @@ if [ -z "$SMITE_PANEL_UPSTREAM" ]; then
 fi
 
 # when running under stock nginx entrypoint the template expects literal variables,
-# so we stash the raw template placeholders before substituting our values.
-SMITE_HTTP_PLACEHOLDER="\${SMITE_HTTP_PORT}"
-SMITE_HTTPS_PLACEHOLDER="\${SMITE_HTTPS_PORT}"
+# so we stash the raw template placeholders (with defaults) before substituting our values.
+SMITE_HTTP_PLACEHOLDER="\${SMITE_HTTP_PORT:-80}"
+SMITE_HTTPS_PLACEHOLDER="\${SMITE_HTTPS_PORT:-443}"
 
 if [ "$SMITE_HTTPS_PORT" = "443" ]; then
   SMITE_HTTPS_REDIRECT_SUFFIX=""
