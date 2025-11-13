@@ -81,7 +81,6 @@ local_addr = "{local_addr}"
             try:
                 add_tracking_rule(tunnel_id, port, is_ipv6)
                 # Get baseline counter (should be 0 or very small right after rule creation)
-                import time
                 time.sleep(0.1)  # Small delay to ensure rule is active
                 baseline_bytes = get_traffic_bytes(tunnel_id, port, is_ipv6)
                 self.iptables_baseline[tunnel_id] = baseline_bytes
@@ -347,7 +346,6 @@ class BackhaulAdapter:
                 try:
                     add_tracking_rule_for_remote(tunnel_id, host, port, is_ipv6)
                     # Get baseline counter (should be 0 or very small right after rule creation)
-                    import time
                     time.sleep(0.1)  # Small delay to ensure rule is active
                     baseline_bytes = get_traffic_bytes_for_remote(tunnel_id, host, port, is_ipv6)
                     self.iptables_baseline[tunnel_id] = baseline_bytes
