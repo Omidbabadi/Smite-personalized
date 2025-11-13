@@ -79,10 +79,24 @@ local_addr = "{local_addr}"
             self.tunnel_ports[tunnel_id] = (port, is_ipv6)
             # Add iptables tracking rule (only counts, doesn't block)
             try:
-                add_tracking_rule(tunnel_id, port, is_ipv6)
-                # Get baseline counter (should be 0 or very small right after rule creation)
-                time.sleep(0.1)  # Small delay to ensure rule is active
-                baseline_bytes = get_traffic_bytes(tunnel_id, port, is_ipv6)
+                # Check if rule already exists (tunnel was restarted)
+                import subprocess
+                result = subprocess.run(
+                    ["iptables" if not is_ipv6 else "ip6tables", "-L", "SMITE_TRACK", "-n", "-v", "-x"],
+                    capture_output=True,
+                    text=True,
+                    check=False
+                )
+                rule_exists = f"smite-{tunnel_id}" in result.stdout
+                
+                if not rule_exists:
+                    add_tracking_rule(tunnel_id, port, is_ipv6)
+                    # Get baseline immediately after rule creation (should be 0)
+                    baseline_bytes = get_traffic_bytes(tunnel_id, port, is_ipv6)
+                else:
+                    # Rule already exists, use current counter as baseline (tunnel restarted)
+                    baseline_bytes = get_traffic_bytes(tunnel_id, port, is_ipv6)
+                
                 self.iptables_baseline[tunnel_id] = baseline_bytes
                 import logging
                 logging.getLogger(__name__).info(f"Added iptables tracking for tunnel {tunnel_id} on port {port} (IPv6={is_ipv6}), baseline: {baseline_bytes} bytes")
@@ -200,16 +214,8 @@ local_addr = "{local_addr}"
             except (psutil.NoSuchProcess, psutil.AccessDenied, AttributeError, OSError):
                 pass
         
-        if tunnel_id not in self.usage_tracking:
-            self.usage_tracking[tunnel_id] = 0.0
-        
-        if total_bytes > 0:
-            current_mb = total_bytes / (1024 * 1024)
-            # Only update if we got a higher value (iptables counters are cumulative)
-            if current_mb > self.usage_tracking[tunnel_id]:
-                self.usage_tracking[tunnel_id] = current_mb
-        
-        return self.usage_tracking.get(tunnel_id, 0.0)
+        # Convert to MB and return directly (panel handles cumulative tracking)
+        return total_bytes / (1024 * 1024)
 
 
 class BackhaulAdapter:
@@ -344,10 +350,24 @@ class BackhaulAdapter:
                 self.tunnel_ports[tunnel_id] = (host, port, is_ipv6, True)  # True = track by remote address
                 # Add iptables tracking rule for outbound connections to remote address
                 try:
-                    add_tracking_rule_for_remote(tunnel_id, host, port, is_ipv6)
-                    # Get baseline counter (should be 0 or very small right after rule creation)
-                    time.sleep(0.1)  # Small delay to ensure rule is active
-                    baseline_bytes = get_traffic_bytes_for_remote(tunnel_id, host, port, is_ipv6)
+                    # Check if rule already exists (tunnel was restarted)
+                    import subprocess
+                    result = subprocess.run(
+                        ["iptables" if not is_ipv6 else "ip6tables", "-L", "SMITE_TRACK", "-n", "-v", "-x"],
+                        capture_output=True,
+                        text=True,
+                        check=False
+                    )
+                    rule_exists = f"smite-{tunnel_id}" in result.stdout
+                    
+                    if not rule_exists:
+                        add_tracking_rule_for_remote(tunnel_id, host, port, is_ipv6)
+                        # Get baseline immediately after rule creation (should be 0)
+                        baseline_bytes = get_traffic_bytes_for_remote(tunnel_id, host, port, is_ipv6)
+                    else:
+                        # Rule already exists, use current counter as baseline (tunnel restarted)
+                        baseline_bytes = get_traffic_bytes_for_remote(tunnel_id, host, port, is_ipv6)
+                    
                     self.iptables_baseline[tunnel_id] = baseline_bytes
                     import logging
                     logging.getLogger(__name__).info(f"Added iptables tracking for Backhaul tunnel {tunnel_id} to {host}:{port} (IPv6={is_ipv6}), baseline: {baseline_bytes} bytes")
@@ -441,15 +461,8 @@ class BackhaulAdapter:
             except (psutil.NoSuchProcess, psutil.AccessDenied, AttributeError, OSError):
                 pass
         
-        if tunnel_id not in self.usage_tracking:
-            self.usage_tracking[tunnel_id] = 0.0
-        
-        if total_bytes > 0:
-            current_mb = total_bytes / (1024 * 1024)
-            if current_mb > self.usage_tracking[tunnel_id]:
-                self.usage_tracking[tunnel_id] = current_mb
-        
-        return self.usage_tracking.get(tunnel_id, 0.0)
+        # Convert to MB and return directly (panel handles cumulative tracking)
+        return total_bytes / (1024 * 1024)
 
     def _render_toml(self, data: Dict[str, Dict[str, Any]]) -> str:
         def format_value(value: Any) -> str:
