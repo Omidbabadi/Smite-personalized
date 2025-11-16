@@ -297,15 +297,15 @@ async def _restore_node_tunnels():
                                     logger.warning(f"Chisel tunnel {tunnel.id}: Could not determine panel host, using localhost. Node may not be able to connect.")
                                     panel_host = "localhost"
                             
-                            # Format host for IPv6 (needs brackets)
-                            from app.utils import format_address_port
-                            if use_ipv6:
-                                formatted_host = format_address_port(panel_host, None)
-                                if "[" in formatted_host:
-                                    server_url = f"http://{formatted_host}:{server_control_port}"
-                                else:
-                                    server_url = f"http://[::1]:{server_control_port}"
+                            # Format server_url - panel_host should be the actual panel address (usually IPv4)
+                            # use_ipv6 only affects local_addr on node, not panel_host
+                            # Check if panel_host is actually an IPv6 address and format accordingly
+                            from app.utils import is_valid_ipv6_address
+                            if is_valid_ipv6_address(panel_host):
+                                # Panel host is IPv6, needs brackets in URL
+                                server_url = f"http://[{panel_host}]:{server_control_port}"
                             else:
+                                # Panel host is IPv4 or hostname
                                 server_url = f"http://{panel_host}:{server_control_port}"
                             
                             spec_for_node["server_url"] = server_url

@@ -4,8 +4,11 @@ import subprocess
 import os
 import psutil
 import time
+import logging
 from pathlib import Path
 import shutil
+
+logger = logging.getLogger(__name__)
 def parse_address_port(address_str: str):
     """Parse address:port string, returns (host, port, is_ipv6)"""
     import re
@@ -81,6 +84,11 @@ class RatholeAdapter:
     
     def apply(self, tunnel_id: str, spec: Dict[str, Any]):
         """Apply Rathole tunnel"""
+        # Remove existing tunnel if it exists
+        if tunnel_id in self.processes:
+            logger.info(f"Rathole tunnel {tunnel_id} already exists, removing it first")
+            self.remove(tunnel_id)
+        
         remote_addr = spec.get('remote_addr', '').strip()
         token = spec.get('token', '').strip()
         local_addr = spec.get('local_addr', '127.0.0.1:8080')
@@ -215,6 +223,11 @@ class BackhaulAdapter:
         ]
 
     def apply(self, tunnel_id: str, spec: Dict[str, Any]):
+        # Remove existing tunnel if it exists
+        if tunnel_id in self.processes:
+            logger.info(f"Backhaul tunnel {tunnel_id} already exists, removing it first")
+            self.remove(tunnel_id)
+        
         remote_addr = spec.get("remote_addr") or spec.get("control_addr") or spec.get("bind_addr")
         if not remote_addr:
             raise ValueError("Backhaul requires 'remote_addr' in spec")
@@ -401,6 +414,11 @@ class ChiselAdapter:
     
     def apply(self, tunnel_id: str, spec: Dict[str, Any]):
         """Apply Chisel tunnel"""
+        # Remove existing tunnel if it exists
+        if tunnel_id in self.processes:
+            logger.info(f"Chisel tunnel {tunnel_id} already exists, removing it first")
+            self.remove(tunnel_id)
+        
         server_url = spec.get('server_url', '').strip()
         # reverse_port is where the reverse tunnel endpoint listens on the server
         # This should be different from the server control port in server_url
@@ -552,6 +570,11 @@ class AdapterManager:
         import logging
         logger = logging.getLogger(__name__)
         logger.info(f"Applying tunnel {tunnel_id}: core={tunnel_core}")
+        
+        # Remove existing tunnel if it exists
+        if tunnel_id in self.active_tunnels:
+            logger.info(f"Tunnel {tunnel_id} already exists, removing it first")
+            await self.remove_tunnel(tunnel_id)
         
         adapter = self.get_adapter(tunnel_core)
         if not adapter:

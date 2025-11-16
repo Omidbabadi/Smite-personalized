@@ -300,18 +300,15 @@ async def create_tunnel(tunnel: TunnelCreate, request: Request, db: AsyncSession
                         logger.warning(f"Chisel tunnel {db_tunnel.id}: Could not determine panel host, using request hostname: {request.url.hostname}. Node may not be able to connect if this is localhost.")
                         panel_host = request.url.hostname or "localhost"
                     
-                    # Format host for IPv6 (needs brackets)
-                    from app.utils import format_address_port
-                    if use_ipv6:
-                        # Use IPv6 format with brackets
-                        formatted_host = format_address_port(panel_host, None)
-                        if "[" in formatted_host:
-                            server_url = f"http://{formatted_host}:{server_control_port}"
-                        else:
-                            # If host is not IPv6, use IPv6 localhost
-                            server_url = f"http://[::1]:{server_control_port}"
+                    # Format server_url - panel_host should be the actual panel address (usually IPv4)
+                    # use_ipv6 only affects local_addr on node, not panel_host
+                    # Check if panel_host is actually an IPv6 address and format accordingly
+                    from app.utils import is_valid_ipv6_address
+                    if is_valid_ipv6_address(panel_host):
+                        # Panel host is IPv6, needs brackets in URL
+                        server_url = f"http://[{panel_host}]:{server_control_port}"
                     else:
-                        # Construct server_url: http://panel_host:server_control_port
+                        # Panel host is IPv4 or hostname
                         # This is the Chisel server control port (where Chisel client connects)
                         # We use listen_port + 10000 to avoid conflict with reverse tunnel endpoint
                         server_url = f"http://{panel_host}:{server_control_port}"
