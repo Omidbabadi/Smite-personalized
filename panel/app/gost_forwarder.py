@@ -45,7 +45,6 @@ class GostForwarder:
             if forward_port is None:
                 forward_port = 8080
             
-            # Format target address for GOST (IPv6 needs brackets in URLs)
             target_addr = format_address_port(forward_host, forward_port)
             
             # Determine listen address based on IPv6 preference

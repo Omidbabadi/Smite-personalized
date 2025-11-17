@@ -1,9 +1,3 @@
-# version is obsolete in Docker Compose v2
-
-# Smite Panel - Main docker-compose file
-# Usage: docker compose up -d
-# Or: docker compose -f docker/docker-compose.yml up -d
-
 services:
   smite-panel:
     image: ghcr.io/zzedix/smite-panel:${SMITE_VERSION:-latest}
@@ -11,13 +5,10 @@ services:
       context: .
       dockerfile: panel/Dockerfile
     container_name: smite-panel
-    # Always use host networking so panel can reach nodes on host network
-    # Nginx can still proxy to localhost:8000 when HTTPS is enabled
     network_mode: host
     volumes:
       - ./panel/data:/app/data
       - ./panel/certs:/app/certs
-      # Frontend is now built into the image, no need to mount
     env_file:
       - .env
     environment:
@@ -25,6 +16,7 @@ services:
       - PANEL_HOST=${PANEL_HOST:-0.0.0.0}
       - DB_TYPE=${DB_TYPE:-sqlite}
       - DB_PATH=${DB_PATH:-./data/smite.db}
+      - SMITE_VERSION=${SMITE_VERSION:-latest}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import os, urllib.request; port=os.environ.get('PANEL_PORT','8000'); urllib.request.urlopen(f'http://localhost:{port}/api/status')"]
@@ -38,11 +30,9 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # Nginx reverse proxy with SSL (only when domain is configured)
   nginx:
     image: nginx:alpine
     container_name: smite-nginx
-    # Use host networking so nginx can access panel on localhost
     network_mode: host
     volumes:
       - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
@@ -59,7 +49,6 @@ services:
     profiles:
       - https
 
-  # Optional: Separate frontend service (if not served by panel)
   frontend:
     build:
       context: ./frontend

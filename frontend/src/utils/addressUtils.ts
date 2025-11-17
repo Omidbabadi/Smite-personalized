@@ -14,7 +14,6 @@ export function parseAddressPort(addressStr: string): { host: string; port: numb
 
   const trimmed = addressStr.trim()
 
-  // Check for IPv6 address in brackets: [2001:db8::1]:8080
   const ipv6BracketMatch = trimmed.match(/^\[([^\]]+)\](?::(\d+))?$/)
   if (ipv6BracketMatch) {
     const host = ipv6BracketMatch[1]
@@ -23,15 +22,11 @@ export function parseAddressPort(addressStr: string): { host: string; port: numb
     return { host, port: isNaN(port!) ? null : port }
   }
 
-  // Check if it's a bare IPv6 address (contains multiple colons)
-  // Simple heuristic: if it has more than one colon and no brackets, might be IPv6
   const colonCount = (trimmed.match(/:/g) || []).length
   if (colonCount > 1 && !trimmed.includes('[')) {
-    // Likely IPv6 without port
     return { host: trimmed, port: null }
   }
 
-  // For IPv4 or hostname with port, split on last colon
   const lastColonIndex = trimmed.lastIndexOf(':')
   if (lastColonIndex > 0 && lastColonIndex < trimmed.length - 1) {
     const hostPart = trimmed.substring(0, lastColonIndex)
@@ -43,7 +38,6 @@ export function parseAddressPort(addressStr: string): { host: string; port: numb
     }
   }
 
-  // No port specified
   return { host: trimmed, port: null }
 }
 
@@ -59,19 +53,16 @@ export function formatAddressPort(host: string, port: number | null | undefined)
     return ''
   }
 
-  // Check if host is an IPv6 address (contains colons and no dots, or matches IPv6 pattern)
   const isIPv6 = /^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$/.test(host) || 
                  (host.includes(':') && !host.includes('.') && host.split(':').length > 2)
 
   if (isIPv6) {
-    // IPv6 address needs brackets if port is specified
     if (port !== null && port !== undefined) {
       return `[${host}]:${port}`
     }
     return host
   }
 
-  // IPv4 or hostname
   if (port !== null && port !== undefined) {
     return `${host}:${port}`
   }
@@ -94,13 +85,11 @@ export function isValidIPAddress(address: string): boolean {
     })
   }
 
-  // IPv6 pattern (simplified)
   const ipv6Pattern = /^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$/
   if (ipv6Pattern.test(address)) {
     return true
   }
 
-  // Check for compressed IPv6 (::)
   if (address.includes('::')) {
     const parts = address.split('::')
     if (parts.length === 2) {
@@ -119,16 +108,13 @@ export function isValidIPAddress(address: string): boolean {
 export function isValidIPv6Address(address: string): boolean {
   if (!address) return false
 
-  // Remove brackets if present
   const cleanAddress = address.replace(/^\[|\]$/g, '')
 
-  // IPv6 pattern
   const ipv6Pattern = /^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$/
   if (ipv6Pattern.test(cleanAddress)) {
     return true
   }
 
-  // Check for compressed IPv6 (::)
   if (cleanAddress.includes('::')) {
     const parts = cleanAddress.split('::')
     if (parts.length === 2) {

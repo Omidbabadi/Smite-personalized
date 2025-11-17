@@ -79,7 +79,6 @@ RUN set -eux; \
 FROM base AS deps
 WORKDIR /app
 COPY requirements.txt .
-# Use pip cache if available
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --no-cache-dir -r requirements.txt
 

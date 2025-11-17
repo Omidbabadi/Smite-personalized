@@ -180,7 +180,6 @@ async def create_tunnel(tunnel: TunnelCreate, request: Request, db: AsyncSession
                     return db_tunnel
         
         if needs_chisel_server:
-            # Use listen_port or remote_port as the port where clients connect (like Rathole's proxy_port)
             listen_port = db_tunnel.spec.get("listen_port") or db_tunnel.spec.get("remote_port") or db_tunnel.spec.get("server_port")
             auth = db_tunnel.spec.get("auth")
             fingerprint = db_tunnel.spec.get("fingerprint")
@@ -200,7 +199,6 @@ async def create_tunnel(tunnel: TunnelCreate, request: Request, db: AsyncSession
             
             if listen_port and hasattr(request.app.state, 'chisel_server_manager'):
                 try:
-                    # Use control_port from spec if provided, otherwise default to listen_port + 10000
                     server_control_port = db_tunnel.spec.get("control_port")
                     if server_control_port:
                         server_control_port = int(server_control_port)
@@ -250,72 +248,50 @@ async def create_tunnel(tunnel: TunnelCreate, request: Request, db: AsyncSession
                 node.node_metadata["api_address"] = f"http://{node.node_metadata.get('ip_address', node.fingerprint)}:{node.node_metadata.get('api_port', 8888)}"
                 await db.commit()
             
-            # Prepare spec for node (may need to modify for Chisel)
             spec_for_node = db_tunnel.spec.copy() if db_tunnel.spec else {}
             
-            # For Chisel, construct server_url from panel address and listen_port
             if needs_chisel_server:
                 listen_port = spec_for_node.get("listen_port") or spec_for_node.get("remote_port") or spec_for_node.get("server_port")
                 use_ipv6 = spec_for_node.get("use_ipv6", False)
                 if listen_port:
-                    # IMPORTANT: Chisel reverse tunnel endpoint port must be DIFFERENT from server control port
-                    # The server_port (listen_port) is where the Chisel server listens for client connections  
-                    # The reverse_port is where clients connect to access the tunneled service
-                    # Use control_port from spec if provided, otherwise default to listen_port + 10000
                     server_control_port = spec_for_node.get("control_port")
                     if server_control_port:
                         server_control_port = int(server_control_port)
                     else:
                         server_control_port = int(listen_port) + 10000
-                    reverse_port = int(listen_port)  # This is where clients connect
+                    reverse_port = int(listen_port)
                     
-                    # Get panel host - prioritize spec.panel_host (set by frontend), then node's view
                     panel_host = spec_for_node.get("panel_host")
                     
-                    # If not in spec, try node's panel_address from metadata
                     if not panel_host:
                         panel_address = node.node_metadata.get("panel_address", "")
                         if panel_address:
-                            # Extract host from panel_address (could be "http://host:port" or "host:port" or just "host")
                             if "://" in panel_address:
-                                # Remove protocol
                                 panel_address = panel_address.split("://", 1)[1]
                             if ":" in panel_address:
-                                # Remove port
                                 panel_host = panel_address.split(":")[0]
                             else:
                                 panel_host = panel_address
                     
-                    # Fallback: request hostname (but might be localhost)
                     if not panel_host or panel_host in ["localhost", "127.0.0.1", "::1"]:
                         panel_host = request.url.hostname
-                        # Try X-Forwarded-Host header (if behind proxy)
                         if not panel_host or panel_host in ["localhost", "127.0.0.1", "::1"]:
                             forwarded_host = request.headers.get("X-Forwarded-Host")
                             if forwarded_host:
                                 panel_host = forwarded_host.split(":")[0] if ":" in forwarded_host else forwarded_host
                     
-                    # Final fallback with warning
                     if not panel_host or panel_host in ["localhost", "127.0.0.1", "::1"]:
                         logger.warning(f"Chisel tunnel {db_tunnel.id}: Could not determine panel host, using request hostname: {request.url.hostname}. Node may not be able to connect if this is localhost.")
                         panel_host = request.url.hostname or "localhost"
                     
-                    # Format server_url - panel_host should be the actual panel address (usually IPv4)
-                    # use_ipv6 only affects local_addr on node, not panel_host
-                    # Check if panel_host is actually an IPv6 address and format accordingly
                     from app.utils import is_valid_ipv6_address
                     if is_valid_ipv6_address(panel_host):
-                        # Panel host is IPv6, needs brackets in URL
                         server_url = f"http://[{panel_host}]:{server_control_port}"
                     else:
-                        # Panel host is IPv4 or hostname
-                        # This is the Chisel server control port (where Chisel client connects)
-                        # We use listen_port + 10000 to avoid conflict with reverse tunnel endpoint
                         server_url = f"http://{panel_host}:{server_control_port}"
                     spec_for_node["server_url"] = server_url
-                    # The reverse_port is where the reverse tunnel endpoint listens (this is where end clients connect)
                     spec_for_node["reverse_port"] = reverse_port
-                    spec_for_node["remote_port"] = int(listen_port)  # Keep for backward compatibility (this is the listen_port)
+                    spec_for_node["remote_port"] = int(listen_port)
                     logger.info(f"Chisel tunnel {db_tunnel.id}: server_url={server_url}, server_control_port={server_control_port}, reverse_port={reverse_port}, use_ipv6={use_ipv6}, panel_host={panel_host}")
             
             logger.info(f"Applying tunnel {db_tunnel.id} to node {node.id}")

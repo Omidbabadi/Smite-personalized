@@ -39,8 +39,6 @@ class RatholeServerManager:
             if port is None:
                 raise ValueError(f"Invalid remote_addr format: {remote_addr} (port required)")
             
-            # Rathole bind_addr format: Panel always listens on IPv4 for v4 to v6 tunnels
-            # use_ipv6 flag means: panel listens on IPv4, but target/node uses IPv6
             bind_addr = f"0.0.0.0:{port}"
             proxy_bind_addr = f"0.0.0.0:{proxy_port}"
             

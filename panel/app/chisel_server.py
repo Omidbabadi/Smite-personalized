@@ -39,10 +39,6 @@ class ChiselServerManager:
                 logger.warning(f"Chisel server for tunnel {tunnel_id} already exists, stopping it first")
                 self.stop_server(tunnel_id)
             
-            # Build chisel server command
-            # chisel server --host <ip> --port <port> --reverse
-            # Panel always listens on IPv4 for v4 to v6 tunnels
-            # use_ipv6 flag means: panel listens on IPv4, but target/node uses IPv6
             host = "0.0.0.0"
             
             cmd = [
@@ -139,7 +135,6 @@ class ChiselServerManager:
                         break
                 
                 if not port_listening:
-                    # Check if process is still running
                     if proc.poll() is not None:
                         error_msg = f"Chisel server process exited (code: {proc.poll()}) before port verification"
                         logger.error(error_msg)
@@ -149,7 +144,6 @@ class ChiselServerManager:
                 else:
                     logger.info(f"Chisel server port {server_port} verified as listening")
             except Exception as e:
-                # Check if process died during verification
                 if proc.poll() is not None:
                     error_msg = f"Chisel server process died during verification (code: {proc.poll()}): {e}"
                     logger.error(error_msg)

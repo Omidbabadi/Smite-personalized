@@ -2,7 +2,6 @@ ARG BACKHAUL_VERSION=v0.7.2
 ARG BACKHAUL_SHA256_AMD64=57bf95c2eabeddb1152d2e94ac42f4310883ce0fb909ee2a57bd53503b2dabbc
 ARG BACKHAUL_SHA256_ARM64=9a424c97ff16fc3f682e8314c418790d2b5bf3136e008edbb6cd402ea00999f6
 
-# Stage 1: System dependencies and binaries
 FROM python:3.11-slim AS base
 RUN apt-get update && apt-get install -y \
     gcc \
@@ -12,7 +11,6 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Stage 2: Install rathole and gost (cached layer)
 FROM base AS binaries
 RUN set -eux; \
     ARCH_RAW="$(uname -m)"; \
@@ -48,7 +46,6 @@ RUN set -eux; \
     /usr/local/bin/gost -V || true; \
     /usr/local/bin/chisel --version || true
 
-# Stage 3: Install backhaul (cached layer)
 FROM base AS backhaul-bin
 ARG BACKHAUL_VERSION
 ARG BACKHAUL_SHA256_AMD64
@@ -76,10 +73,8 @@ RUN set -eux; \
     rm -rf "$TMP_DIR"; \
     /opt/backhaul/backhaul --version || true
 
-# Stage 4: Frontend build (cached layer)
 FROM node:18-alpine AS frontend-build
 WORKDIR /app
-# Build context is now root, so frontend/ is directly accessible
 COPY frontend/package.json frontend/package-lock.json* ./
 RUN --mount=type=cache,target=/root/.npm \
     if [ -f package-lock.json ]; then \
@@ -90,36 +85,30 @@ RUN --mount=type=cache,target=/root/.npm \
 COPY frontend ./
 RUN npm run build
 
-# Stage 5: Python dependencies (cached layer)
 FROM base AS deps
 WORKDIR /app
 COPY panel/requirements.txt .
-# Use pip cache if available
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --no-cache-dir -r requirements.txt
 
-# Stage 6: Final image
 FROM base
 WORKDIR /app
 
-# Copy binaries from binaries stage
+ARG SMITE_VERSION=latest
+LABEL org.opencontainers.image.version="${SMITE_VERSION}"
+LABEL smite.version="${SMITE_VERSION}"
+ENV SMITE_VERSION="${SMITE_VERSION}"
+
 COPY --from=binaries /usr/local/bin/rathole /usr/local/bin/rathole
 COPY --from=binaries /usr/local/bin/gost /usr/local/bin/gost
 COPY --from=binaries /usr/local/bin/chisel /usr/local/bin/chisel
 COPY --from=backhaul-bin /opt/backhaul/backhaul /usr/local/bin/backhaul
-
-# Copy Python dependencies from deps stage
 COPY --from=deps /usr/local /usr/local
-
-# Copy frontend build from frontend-build stage
 COPY --from=frontend-build /app/dist ./static
-
-# Copy application code (changes most frequently)
 COPY panel .
 
 EXPOSE 8000 443/tcp 443/udp
 
-# Create startup script that uses environment variables (use single quotes to prevent build-time expansion)
 RUN echo '#!/bin/sh' > /app/start.sh && \
     echo 'exec uvicorn main:app --host "${PANEL_HOST:-0.0.0.0}" --port "${PANEL_PORT:-8000}"' >> /app/start.sh && \
     chmod +x /app/start.sh

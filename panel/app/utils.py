@@ -25,7 +25,6 @@ def parse_address_port(address_str: str) -> Tuple[str, Optional[int], bool]:
     
     address_str = address_str.strip()
     
-    # Check for IPv6 address in brackets: [2001:db8::1]:8080
     ipv6_bracket_match = re.match(r'^\[([^\]]+)\](?::(\d+))?$', address_str)
     if ipv6_bracket_match:
         host = ipv6_bracket_match.group(1)
@@ -33,38 +32,28 @@ def parse_address_port(address_str: str) -> Tuple[str, Optional[int], bool]:
         port = int(port_str) if port_str else None
         return (host, port, True)
     
-    # Check if it's a bare IPv6 address (no brackets, no port)
-    # IPv6 addresses contain colons, so we need to check if it's a valid IPv6
     try:
         ipaddress.IPv6Address(address_str)
-        # It's a valid IPv6 address without port
         return (address_str, None, True)
     except (ValueError, ipaddress.AddressValueError):
         pass
     
-    # For IPv4 or hostname with port, split on last colon
     if ":" in address_str:
-        # Try to split on last colon (handles IPv6 addresses that might have been passed without brackets)
         parts = address_str.rsplit(":", 1)
         if len(parts) == 2:
             host_part = parts[0]
             port_str = parts[1]
             
-            # Check if host_part is actually an IPv6 address
             try:
                 ipaddress.IPv6Address(host_part)
-                # It's an IPv6 address, return as-is with port
                 return (host_part, int(port_str), True)
             except (ValueError, ipaddress.AddressValueError):
-                # It's IPv4 or hostname
                 try:
                     port = int(port_str)
                     return (host_part, port, False)
                 except ValueError:
-                    # Port is not a number, treat entire string as host
                     return (address_str, None, False)
     
-    # No port specified
     return (address_str, None, False)
 
 
@@ -82,15 +71,12 @@ def format_address_port(host: str, port: Optional[int] = None) -> str:
     if not host:
         return ""
     
-    # Check if host is an IPv6 address
     try:
         ipaddress.IPv6Address(host)
-        # IPv6 address needs brackets if port is specified
         if port is not None:
             return f"[{host}]:{port}"
         return host
     except (ValueError, ipaddress.AddressValueError):
-        # IPv4 or hostname
         if port is not None:
             return f"{host}:{port}"
         return host

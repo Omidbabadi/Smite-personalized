@@ -7,7 +7,7 @@
     <img src="assets/SmiteL.png" alt="Smite Logo" width="200"/>
   </picture>
   
-  **Modern tunnel management built on GOST, Backhaul, and Rathole, featuring an intuitive WebUI, fast CLI, and open-source freedom.**
+  **Modern tunnel management built on GOST, Backhaul, Rathole, and Chisel, featuring an intuitive WebUI, fast CLI, and open-source freedom.**
   
   [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
   [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
@@ -23,11 +23,11 @@
 
 ## 🚀 Features
 
-- **Multiple Tunnel Types**: Support for TCP, UDP, gRPC, TCPMux, Backhaul, and Rathole
+- **Multiple Tunnel Types**: Support for TCP, UDP, gRPC, TCPMux, Backhaul, Rathole, and Chisel
 - **Docker-First**: Easy deployment with Docker Compose
 - **Web UI**: Modern, intuitive web interface for tunnel management
 - **CLI Tools**: Powerful command-line tools for management
-- **Node Support**: Easy reverse tunnel setup with Backhaul and Rathole nodes
+- **Node Support**: Easy reverse tunnel setup with Backhaul, Rathole, and Chisel nodes
 - **GOST Forwarding**: Direct forwarding without nodes for better performance
 
 ---
@@ -86,7 +86,7 @@ smite admin create
 
 ## 🖥️ Node Installation
 
-> **Note**: Nodes are used for **Backhaul** and **Rathole** tunnels, providing easy reverse tunnel functionality. For GOST tunnels (TCP, UDP, gRPC, TCPMux), you can forward directly without a node.
+> **Note**: Nodes are used for **Backhaul**, **Rathole**, and **Chisel** tunnels, providing easy reverse tunnel functionality. For GOST tunnels (TCP, UDP, gRPC, TCPMux), you can forward directly without a node.
 
 ### Quick Install
 
@@ -138,13 +138,15 @@ smite admin create      # Create admin user
 smite admin update      # Update admin password
 smite status            # Show system status
 smite update            # Update and restart
+smite restart           # Restart panel
 smite logs              # View logs
 ```
 
 ### Node CLI (`smite-node`)
 ```bash
 smite-node status       # Show node status
-smite-node update       # Update node
+smite-node update        # Update node
+smite-node restart      # Restart node
 smite-node logs         # View logs
 ```
 
@@ -169,6 +171,9 @@ Backhaul tunnels require a node. The panel manages the Backhaul server automatic
 
 ### Rathole Tunnels (Reverse Tunnel)
 Rathole tunnels require a node and provide easy reverse tunnel functionality. The node connects to the panel, allowing you to expose services running on the node's network through the panel.
+
+### Chisel Tunnels (Reverse Tunnel)
+Chisel tunnels require a node and provide fast TCP/UDP reverse tunnel functionality. Similar to Rathole, the node connects to the panel's Chisel server, enabling you to expose services running on the node's network through the panel with high performance.
 
 ---
 

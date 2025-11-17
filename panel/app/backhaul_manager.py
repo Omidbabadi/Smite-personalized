@@ -183,10 +183,7 @@ class BackhaulManager:
                 control_port = int(control_port)
             except (TypeError, ValueError):
                 control_port = 3080
-            # Panel always listens on IPv4 for v4 to v6 tunnels
-            # use_ipv6 flag means: panel listens on IPv4, but target uses IPv6
             bind_ip = spec.get("bind_ip", "0.0.0.0")
-            # Override to IPv4 if user set IPv6 (for v4 to v6 tunnel)
             if bind_ip == "::":
                 bind_ip = "0.0.0.0"
             bind_addr = f"{bind_ip}:{control_port}"
@@ -227,21 +224,16 @@ class BackhaulManager:
         listen_port = spec.get("public_port") or spec.get("listen_port")
         target_addr = spec.get("target_addr")
         if not target_addr:
-            # When v4 to v6 is enabled, default target_host to IPv6 localhost
             use_ipv6 = spec.get("use_ipv6", False)
             default_target = "::1" if use_ipv6 else "127.0.0.1"
             target_host = spec.get("target_host", default_target)
             target_port = spec.get("target_port") or listen_port
             if target_port is None:
                 return []
-            # Use format_address_port to properly handle IPv6 addresses
             from app.utils import format_address_port
             target_addr = format_address_port(target_host, target_port)
-        # Panel always listens on IPv4 for v4 to v6 tunnels
-        # use_ipv6 flag means: panel listens on IPv4, but target uses IPv6
         use_ipv6 = spec.get("use_ipv6", False)
         listen_ip = spec.get("listen_ip", spec.get("public_ip", "0.0.0.0"))
-        # Override to IPv4 if user set IPv6 (for v4 to v6 tunnel)
         if listen_ip == "::":
             listen_ip = "0.0.0.0"
 

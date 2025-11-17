@@ -201,7 +201,6 @@ async def _restore_chisel_servers():
                 
                 try:
                     use_ipv6 = tunnel.spec.get("use_ipv6", False)
-                    # Use control_port from spec if provided, otherwise default to listen_port + 10000
                     server_control_port = tunnel.spec.get("control_port")
                     if server_control_port:
                         server_control_port = int(server_control_port)
@@ -251,30 +250,24 @@ async def _restore_node_tunnels():
                         logger.warning(f"Tunnel {tunnel.id}: Node {tunnel.node_id} not found, skipping")
                         continue
                     
-                    # Prepare spec for node
                     spec_for_node = tunnel.spec.copy() if tunnel.spec else {}
                     
-                    # For Chisel, construct server_url
                     if tunnel.core == "chisel":
                         listen_port = spec_for_node.get("listen_port") or spec_for_node.get("remote_port") or spec_for_node.get("server_port")
                         use_ipv6 = spec_for_node.get("use_ipv6", False)
                         if listen_port:
-                            # Use control_port from spec if provided, otherwise default to listen_port + 10000
                             server_control_port = spec_for_node.get("control_port")
                             if server_control_port:
                                 server_control_port = int(server_control_port)
                             else:
                                 server_control_port = int(listen_port) + 10000
-                            reverse_port = int(listen_port)  # This is where clients connect
+                            reverse_port = int(listen_port)
                             
-                            # Get panel host - prioritize spec.panel_host (set by frontend)
                             panel_host = spec_for_node.get("panel_host")
                             
-                            # If not in spec, try node's panel_address from metadata
                             if not panel_host:
                                 panel_address = node.node_metadata.get("panel_address", "")
                                 if panel_address:
-                                    # Extract host from panel_address
                                     if "://" in panel_address:
                                         panel_address = panel_address.split("://", 1)[1]
                                     if ":" in panel_address:
@@ -282,14 +275,11 @@ async def _restore_node_tunnels():
                                     else:
                                         panel_host = panel_address
                             
-                            # Fallback: use panel_domain from settings
                             if not panel_host or panel_host in ["localhost", "127.0.0.1", "::1"]:
                                 if settings.panel_domain:
                                     panel_host = settings.panel_domain
                             
-                            # Final fallback: use node's fingerprint (if it's an IP)
                             if not panel_host or panel_host in ["localhost", "127.0.0.1", "::1"]:
-                                # Try to use node's IP from metadata
                                 node_ip = node.node_metadata.get("ip_address") or node.fingerprint
                                 if node_ip and node_ip not in ["localhost", "127.0.0.1", "::1"]:
                                     panel_host = node_ip
@@ -297,23 +287,17 @@ async def _restore_node_tunnels():
                                     logger.warning(f"Chisel tunnel {tunnel.id}: Could not determine panel host, using localhost. Node may not be able to connect.")
                                     panel_host = "localhost"
                             
-                            # Format server_url - panel_host should be the actual panel address (usually IPv4)
-                            # use_ipv6 only affects local_addr on node, not panel_host
-                            # Check if panel_host is actually an IPv6 address and format accordingly
                             from app.utils import is_valid_ipv6_address
                             if is_valid_ipv6_address(panel_host):
-                                # Panel host is IPv6, needs brackets in URL
                                 server_url = f"http://[{panel_host}]:{server_control_port}"
                             else:
-                                # Panel host is IPv4 or hostname
                                 server_url = f"http://{panel_host}:{server_control_port}"
                             
                             spec_for_node["server_url"] = server_url
                             spec_for_node["reverse_port"] = reverse_port
-                            spec_for_node["remote_port"] = int(listen_port)  # Keep for backward compatibility
+                            spec_for_node["remote_port"] = int(listen_port)
                             logger.info(f"Chisel tunnel {tunnel.id}: server_url={server_url}, server_control_port={server_control_port}, reverse_port={reverse_port}, use_ipv6={use_ipv6}, panel_host={panel_host}")
                     
-                    # Ensure node has api_address
                     if not node.node_metadata.get("api_address"):
                         node.node_metadata["api_address"] = f"http://{node.node_metadata.get('ip_address', node.fingerprint)}:{node.node_metadata.get('api_port', 8888)}"
                         await db.commit()

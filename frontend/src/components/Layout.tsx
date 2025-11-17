@@ -34,7 +34,6 @@ const Layout = ({ children }: LayoutProps) => {
   }, [location.pathname])
 
   useEffect(() => {
-    // Fetch version from API
     fetch('/api/status/version')
       .then(res => res.json())
       .then(data => {
@@ -43,7 +42,6 @@ const Layout = ({ children }: LayoutProps) => {
         }
       })
       .catch(() => {
-        // Fallback to default version if API fails
         setVersion('v0.1.0')
       })
   }, [])

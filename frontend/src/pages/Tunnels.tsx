@@ -180,11 +180,9 @@ const Tunnels = () => {
 
   useEffect(() => {
     fetchData()
-    // Check if we should open the modal from URL params
     const params = new URLSearchParams(window.location.search)
     if (params.get('create') === 'true') {
       setShowAddModal(true)
-      // Clean URL
       window.history.replaceState({}, '', '/tunnels')
     }
     
@@ -421,8 +419,6 @@ interface EditTunnelModalProps {
 }
 
 const EditTunnelModal = ({ tunnel, onClose, onSuccess }: EditTunnelModalProps) => {
-  // Extract remote_ip and remote_port from spec (Shifter pattern)
-  // Fallback to parsing forward_to for backward compatibility
   const forwardToParsed = tunnel.spec?.forward_to ? parseAddressPort(tunnel.spec.forward_to) : null
   const remoteIp = tunnel.spec?.remote_ip || forwardToParsed?.host || '127.0.0.1'
   const remotePort = tunnel.spec?.remote_port || forwardToParsed?.port || 8080
@@ -450,10 +446,8 @@ const EditTunnelModal = ({ tunnel, onClose, onSuccess }: EditTunnelModalProps) =
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
-      // Build updated spec
       let updatedSpec = { ...tunnel.spec }
       
-      // Get v4 to v6 setting (use existing or default to false)
       const useV4ToV6 = updatedSpec.use_ipv6 || false
       
       if (tunnel.core === 'rathole') {
@@ -465,19 +459,15 @@ const EditTunnelModal = ({ tunnel, onClose, onSuccess }: EditTunnelModalProps) =
           updatedSpec.remote_addr = `${remoteHost}:${remotePort || '23333'}`
         }
         if (formData.rathole_local_port) {
-          // Use IPv6 local address if v4 to v6 tunnel is enabled
-          // Use node IPv6 address if provided, otherwise default to ::1
           const localHost = useV4ToV6 
             ? (formData.node_ipv6 || '::1')
             : '127.0.0.1'
           const localPort = parseInt(formData.rathole_local_port) || 8080
           updatedSpec.local_addr = formatAddressPort(localHost, localPort)
         }
-        // Store node IPv6 address if provided
         if (formData.node_ipv6) {
           updatedSpec.node_ipv6 = formData.node_ipv6
         }
-        // Proxy port (listen_port) is where clients connect to access the tunneled service
         const port = parseInt(formData.port.toString()) || parseInt(formData.rathole_local_port) || 8090
         updatedSpec.remote_port = port
         updatedSpec.listen_port = port
@@ -487,28 +477,22 @@ const EditTunnelModal = ({ tunnel, onClose, onSuccess }: EditTunnelModalProps) =
         updatedSpec.remote_ip = remoteIp
         updatedSpec.remote_port = port
         updatedSpec.listen_port = port
-        // Also set forward_to for backward compatibility
         updatedSpec.forward_to = formatAddressPort(remoteIp, port)
       } else if (tunnel.core === 'chisel') {
         const listenPort = parseInt(formData.port.toString()) || 8080
         updatedSpec.listen_port = listenPort
         updatedSpec.remote_port = listenPort
-        // Control port: if specified, use it; otherwise auto (listen_port + 10000)
         const controlPort = formData.chisel_control_port 
           ? parseInt(formData.chisel_control_port.toString())
           : listenPort + 10000
         updatedSpec.control_port = controlPort
-        // Local port
         if (formData.rathole_local_port) {
-          // Use IPv6 local address if v4 to v6 tunnel is enabled
-          // Use node IPv6 address if provided, otherwise default to ::1
           const localHost = updatedSpec.use_ipv6 
             ? (formData.node_ipv6 || '::1')
             : '127.0.0.1'
           const localPort = parseInt(formData.rathole_local_port) || 8080
           updatedSpec.local_addr = formatAddressPort(localHost, localPort)
         }
-        // Store node IPv6 address if provided
         if (formData.node_ipv6) {
           updatedSpec.node_ipv6 = formData.node_ipv6
         }
@@ -826,61 +810,46 @@ const AddTunnelModal = ({ nodes, onClose, onSuccess }: AddTunnelModalProps) => {
       let spec = getSpecForType(formData.core, formData.type)
       let tunnelType = formData.type
       
-      // Add IPv6 preference to spec
       spec.use_ipv6 = formData.use_ipv6 || false
       
-      // For GOST tunnels (TCP/UDP/gRPC/TCPMux), set remote_ip and remote_port (Shifter pattern)
       if (formData.core === 'xray' && (formData.type === 'tcp' || formData.type === 'udp' || formData.type === 'grpc' || formData.type === 'tcpmux')) {
         const remoteIp = formData.remote_ip || (formData.use_ipv6 ? '::1' : '127.0.0.1')
         const port = parseInt(formData.port.toString()) || 8080
         spec.remote_ip = remoteIp
         spec.remote_port = port
         spec.listen_port = port
-        // Also set forward_to for backward compatibility
         spec.forward_to = formatAddressPort(remoteIp, port)
       }
       
-      // For Rathole, add required fields
       if (formData.core === 'rathole') {
-        // Use window.location.hostname for IP, rathole_remote_addr is just the port now
         const remoteHost = window.location.hostname
         const remotePort = formData.rathole_remote_addr || '23333'
         spec.remote_addr = `${remoteHost}:${remotePort}`
         spec.token = formData.rathole_token
-        // Use IPv6 local address if v4 to v6 tunnel is enabled
-        // Use node IPv6 address if provided, otherwise default to ::1
         const localHost = formData.use_ipv6 
           ? (formData.node_ipv6 || '::1')
           : '127.0.0.1'
         const localPort = parseInt(formData.rathole_local_port) || 8080
         spec.local_addr = formatAddressPort(localHost, localPort)
-        // Proxy port (listen_port) is where clients connect to access the tunneled service
         const port = parseInt(formData.port.toString()) || parseInt(formData.rathole_local_port) || 8090
         spec.remote_port = port
         spec.listen_port = port
       }
       
-      // For Chisel, add required fields (works like Rathole)
       if (formData.core === 'chisel') {
-        // listen_port is where clients connect (like Rathole's proxy_port)
         const listenPort = parseInt(formData.port.toString()) || 8080
         spec.listen_port = listenPort
         spec.remote_port = listenPort
-        spec.server_port = listenPort  // Keep for backward compatibility
-        // Control port: if specified, use it; otherwise auto (listen_port + 10000)
+        spec.server_port = listenPort
         const controlPort = formData.chisel_control_port 
           ? parseInt(formData.chisel_control_port.toString())
           : listenPort + 10000
         spec.control_port = controlPort
-        // Local port on node where the service listens (default to same as listen_port if not specified)
         const localPort = parseInt(formData.rathole_local_port?.toString() || formData.port?.toString() || '8080')
-        // Use IPv6 local address if v4 to v6 tunnel is enabled
-        // Use node IPv6 address if provided, otherwise default to ::1
         const localHost = formData.use_ipv6 
           ? (formData.node_ipv6 || '::1')
           : '127.0.0.1'
         spec.local_addr = formatAddressPort(localHost, localPort)
-        // Set panel host (same as Rathole uses window.location.hostname)
         const panelHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost'
         spec.panel_host = panelHost
       }
@@ -899,7 +868,7 @@ const AddTunnelModal = ({ nodes, onClose, onSuccess }: AddTunnelModalProps) => {
         name: formData.name,
         core: formData.core,
         type: tunnelType,
-        node_id: formData.node_id || null,  // null for GOST tunnels (no node needed)
+        node_id: formData.node_id || null,
         spec: spec,
       }
       await api.post('/tunnels', payload)
@@ -911,16 +880,12 @@ const AddTunnelModal = ({ nodes, onClose, onSuccess }: AddTunnelModalProps) => {
   }
 
   const getSpecForType = (core: string, type: string): Record<string, any> => {
-    const baseSpec: Record<string, any> = {
-      // listen_port will be set from formData.local_port
-    }
+    const baseSpec: Record<string, any> = {}
 
-    // Rathole is a separate core, not a type
     if (core === 'rathole') {
       return { ...baseSpec, remote_addr: '', token: '', local_addr: '127.0.0.1:8080' }
     }
 
-    // GOST core types
     switch (type) {
       case 'grpc':
         return { ...baseSpec, service_name: 'GrpcService', uuid: generateUUID() }
@@ -931,15 +896,14 @@ const AddTunnelModal = ({ nodes, onClose, onSuccess }: AddTunnelModalProps) => {
     }
   }
 
-  // When core changes, update type accordingly
   const handleCoreChange = (core: string) => {
     let newType = formData.type
     if (core === 'rathole' || core === 'chisel') {
-      newType = core // Type matches core for rathole and chisel
+      newType = core
     } else if (core === 'backhaul') {
       newType = backhaulState.transport
     } else if (formData.type === 'rathole' || formData.type === 'chisel' || formData.core === 'backhaul') {
-      newType = 'tcp' // Reset to default GOST type
+      newType = 'tcp'
     }
     setFormData({ ...formData, core, type: newType })
   }

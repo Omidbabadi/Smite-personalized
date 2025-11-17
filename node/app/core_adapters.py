@@ -19,7 +19,6 @@ def parse_address_port(address_str: str):
     
     address_str = address_str.strip()
     
-    # Check for IPv6 address in brackets: [2001:db8::1]:8080
     ipv6_bracket_match = re.match(r'^\[([^\]]+)\](?::(\d+))?$', address_str)
     if ipv6_bracket_match:
         host = ipv6_bracket_match.group(1)
@@ -27,21 +26,18 @@ def parse_address_port(address_str: str):
         port = int(port_str) if port_str else None
         return (host, port, True)
     
-    # Check if it's a bare IPv6 address
     try:
         ipaddress.IPv6Address(address_str)
         return (address_str, None, True)
     except (ValueError, ipaddress.AddressValueError):
         pass
     
-    # For IPv4 or hostname with port, split on last colon
     if ":" in address_str:
         parts = address_str.rsplit(":", 1)
         if len(parts) == 2:
             host_part = parts[0]
             port_str = parts[1]
             
-            # Check if host_part is actually an IPv6 address
             try:
                 ipaddress.IPv6Address(host_part)
                 return (host_part, int(port_str), True)
@@ -84,7 +80,6 @@ class RatholeAdapter:
     
     def apply(self, tunnel_id: str, spec: Dict[str, Any]):
         """Apply Rathole tunnel"""
-        # Remove existing tunnel if it exists
         if tunnel_id in self.processes:
             logger.info(f"Rathole tunnel {tunnel_id} already exists, removing it first")
             self.remove(tunnel_id)
@@ -223,7 +218,6 @@ class BackhaulAdapter:
         ]
 
     def apply(self, tunnel_id: str, spec: Dict[str, Any]):
-        # Remove existing tunnel if it exists
         if tunnel_id in self.processes:
             logger.info(f"Backhaul tunnel {tunnel_id} already exists, removing it first")
             self.remove(tunnel_id)
@@ -420,8 +414,6 @@ class ChiselAdapter:
             self.remove(tunnel_id)
         
         server_url = spec.get('server_url', '').strip()
-        # reverse_port is where the reverse tunnel endpoint listens on the server
-        # This should be different from the server control port in server_url
         reverse_port = spec.get('reverse_port') or spec.get('remote_port') or spec.get('listen_port') or spec.get('server_port')
         local_addr = spec.get('local_addr')
         
@@ -430,30 +422,20 @@ class ChiselAdapter:
         if not reverse_port:
             raise ValueError("Chisel requires 'reverse_port', 'remote_port', or 'listen_port' in spec")
         
-        # If local_addr is not provided, default to same port as reverse_port on localhost
         if not local_addr:
             local_addr = f"127.0.0.1:{reverse_port}"
             logger.warning(f"Chisel tunnel {tunnel_id}: local_addr not specified, defaulting to {local_addr}")
         
-        # Parse local_addr to get host and port
         host, port, is_ipv6 = parse_address_port(local_addr)
         if not port:
             raise ValueError(f"Invalid local_addr format: {local_addr} (port required)")
         
-        # Chisel reverse tunnel format: R:<reverse_port>:<local_host>:<local_port>
-        # Example: R:8080:127.0.0.1:8080 or R:8080:[::1]:8080 for IPv6
-        # This means: forward connections to reverse_port on server to local_host:local_port on node
-        # IMPORTANT: reverse_port should be different from the server control port in server_url
-        # But if they're the same, Chisel should handle it (though it may cause conflicts)
-        # For IPv6 addresses, Chisel requires brackets around the host
         if is_ipv6:
             reverse_spec = f"R:{reverse_port}:[{host}]:{port}"
         else:
             reverse_spec = f"R:{reverse_port}:{host}:{port}"
         logger.info(f"Chisel tunnel {tunnel_id}: reverse_spec={reverse_spec}, server_url={server_url}")
         
-        # Build chisel client command
-        # chisel client <server_url> <reverse_spec>
         binary_path = self._resolve_binary_path()
         cmd = [
             str(binary_path),
@@ -487,7 +469,6 @@ class ChiselAdapter:
                 cwd=str(self.config_dir),
                 start_new_session=True
             )
-            # Store log file handle to keep it open (prevents subprocess from exiting)
             self.log_handles[tunnel_id] = log_f
             self.processes[tunnel_id] = proc
             time.sleep(1.0)  # Give it more time to start
