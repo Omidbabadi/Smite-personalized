@@ -84,16 +84,20 @@ def run_docker_compose(args, capture_output=False):
         print(f"Error: docker-compose.yml not found at {compose_file}")
         sys.exit(1)
     
-    env_file = get_env_file()
+    compose_dir = compose_file.parent
+    env_file = compose_dir / ".env"
     env_vars = os.environ.copy()
     if env_file.exists():
         for line in env_file.read_text().splitlines():
             line = line.strip()
             if line and not line.startswith('#') and '=' in line:
-                key, value = line.split('=', 1)
-                env_vars[key.strip()] = value.strip()
+                parts = line.split('=', 1)
+                if len(parts) == 2:
+                    key = parts[0].strip()
+                    value = parts[1].strip()
+                    if key:
+                        env_vars[key] = value
     
-    compose_dir = compose_file.parent
     original_cwd = Path.cwd()
     
     try:
