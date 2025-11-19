@@ -110,7 +110,8 @@ COPY panel .
 EXPOSE 8000 443/tcp 443/udp
 
 RUN echo '#!/bin/sh' > /app/start.sh && \
+    echo 'set -e' >> /app/start.sh && \
     echo 'exec uvicorn main:app --host "${PANEL_HOST:-0.0.0.0}" --port "${PANEL_PORT:-8000}"' >> /app/start.sh && \
     chmod +x /app/start.sh
 
-CMD ["/app/start.sh"]
+CMD ["/bin/sh", "/app/start.sh"]
