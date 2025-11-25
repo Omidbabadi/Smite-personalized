@@ -434,9 +434,13 @@ async def create_tunnel(tunnel: TunnelCreate, request: Request, db: AsyncSession
                     logger.info(f"Chisel tunnel {db_tunnel.id}: server_url={server_url}, server_control_port={server_control_port}, reverse_port={reverse_port}, use_ipv6={use_ipv6}, panel_host={panel_host}")
             
             if needs_frp_server:
+                logger.info(f"Preparing FRP spec for tunnel {db_tunnel.id}, original spec server_addr: {spec_for_node.get('server_addr', 'NOT SET')}")
                 try:
                     spec_for_node = prepare_frp_spec_for_node(spec_for_node, node, request)
-                    logger.info(f"FRP spec prepared for tunnel {db_tunnel.id}: server_addr={spec_for_node.get('server_addr')}")
+                    final_server_addr = spec_for_node.get('server_addr', 'NOT SET')
+                    logger.info(f"FRP spec prepared for tunnel {db_tunnel.id}: server_addr={final_server_addr}, server_port={spec_for_node.get('server_port')}")
+                    if final_server_addr in ["0.0.0.0", "NOT SET", ""]:
+                        raise ValueError(f"FRP server_addr is invalid: {final_server_addr}")
                 except Exception as e:
                     error_msg = f"Failed to prepare FRP spec: {str(e)}"
                     logger.error(f"Tunnel {db_tunnel.id}: {error_msg}", exc_info=True)
@@ -446,7 +450,7 @@ async def create_tunnel(tunnel: TunnelCreate, request: Request, db: AsyncSession
                     await db.refresh(db_tunnel)
                     return db_tunnel
             
-            logger.info(f"Applying tunnel {db_tunnel.id} to node {node.id}, spec keys: {list(spec_for_node.keys())}, server_addr: {spec_for_node.get('server_addr', 'NOT SET')}")
+            logger.info(f"Applying tunnel {db_tunnel.id} to node {node.id}, spec keys: {list(spec_for_node.keys())}, server_addr: {spec_for_node.get('server_addr', 'NOT SET')}, full spec: {spec_for_node}")
             response = await client.send_to_node(
                 node_id=node.id,
                 endpoint="/api/agent/tunnels/apply",

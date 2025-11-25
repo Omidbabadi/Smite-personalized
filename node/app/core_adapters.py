@@ -589,24 +589,47 @@ class FrpAdapter:
         if tunnel_type not in ['tcp', 'udp']:
             raise ValueError(f"FRP only supports 'tcp' and 'udp' types, got '{tunnel_type}'")
         
+        # Clean server_addr - remove brackets if present (for IPv6 format from panel)
+        if server_addr.startswith('[') and server_addr.endswith(']'):
+            server_addr = server_addr[1:-1]
+        
+        # Validate server_addr is not 0.0.0.0 or empty
+        if not server_addr or server_addr in ["0.0.0.0", "localhost", "127.0.0.1", "::1"]:
+            raise ValueError(f"Invalid FRP server_addr: {server_addr}. Must be a valid panel IP address or hostname.")
+        
         # Create FRP client config file
         config_file = self.config_dir / f"frpc_{tunnel_id}.toml"
-        with open(config_file, 'w') as f:
-            f.write("[common]\n")
-            f.write(f'serverAddr = "{server_addr}"\n')
-            f.write(f'serverPort = {server_port}\n')
-            if token:
-                f.write('auth.method = "token"\n')
-                f.write(f'auth.token = "{token}"\n')
-            f.write('\n')
-            f.write('[[proxies]]\n')
-            f.write(f'name = "{tunnel_id}"\n')
-            f.write(f'type = "{tunnel_type}"\n')
-            f.write(f'localIP = "{local_ip}"\n')
-            f.write(f'localPort = {local_port}\n')
-            f.write(f'remotePort = {remote_port}\n')
+        config_content = f"""[common]
+serverAddr = "{server_addr}"
+serverPort = {server_port}
+"""
+        if token:
+            config_content += f'auth.method = "token"\n'
+            config_content += f'auth.token = "{token}"\n'
         
+        config_content += f"""
+[[proxies]]
+name = "{tunnel_id}"
+type = "{tunnel_type}"
+localIP = "{local_ip}"
+localPort = {local_port}
+remotePort = {remote_port}
+"""
+        
+        with open(config_file, 'w') as f:
+            f.write(config_content)
+        
+        # Log the actual config file content for debugging
         logger.info(f"FRP tunnel {tunnel_id}: type={tunnel_type}, local={local_ip}:{local_port}, remote={remote_port}, server={server_addr}:{server_port}")
+        logger.debug(f"FRP config file {config_file} content:\n{config_content}")
+        
+        # Verify the config file was written correctly
+        if config_file.exists():
+            with open(config_file, 'r') as f:
+                written_content = f.read()
+                if 'serverAddr = "0.0.0.0"' in written_content:
+                    logger.error(f"ERROR: Config file contains 0.0.0.0! Written content:\n{written_content}")
+                    raise ValueError(f"Config file incorrectly contains 0.0.0.0. server_addr was: {server_addr}")
         
         binary_path = self._resolve_binary_path()
         cmd = [
