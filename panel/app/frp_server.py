@@ -69,9 +69,8 @@ class FrpServerManager:
   method: token
   token: "{token}"
 """
-            config_content += """webServer:
-  enable: false
-"""
+            # Note: webServer section removed as FRP v0.65.0 doesn't support it in YAML format
+            # Dashboard is disabled by default when not specified
             with open(config_file, 'w') as f:
                 f.write(config_content)
             
