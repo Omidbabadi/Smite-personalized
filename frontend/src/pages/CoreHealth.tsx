@@ -27,9 +27,10 @@ const CoreHealth = () => {
   const [configs, setConfigs] = useState<ResetConfig[]>([])
   const [loading, setLoading] = useState(true)
   const [updating, setUpdating] = useState<string | null>(null)
-  const [timerTick, setTimerTick] = useState(0)
-  // Store client-side reset times (independent of server time)
-  const [clientResetTimes, setClientResetTimes] = useState<Record<string, number>>({})
+  // Standalone counter: seconds since last reset for each core
+  const [resetCounters, setResetCounters] = useState<Record<string, number>>({})
+  // Track last_reset value from server to detect changes (not timestamp, just the value)
+  const [lastResetValues, setLastResetValues] = useState<Record<string, string | null>>({})
 
   const fetchData = async () => {
     try {
@@ -42,35 +43,29 @@ const CoreHealth = () => {
       // Update configs
       setConfigs(configsRes.data)
       
-      // Sync client reset times with server (detect auto-reset)
-      // Always use server timestamp as source of truth to avoid timezone/clock sync issues
-      setClientResetTimes(prevClientTimes => {
-        const updated: Record<string, number> = {}
-        const now = Date.now()
+      // Detect reset changes by comparing last_reset value (not timestamp)
+      setLastResetValues(prevValues => {
+        const updated: Record<string, string | null> = {}
         
         configsRes.data.forEach((config: ResetConfig) => {
-          if (config.last_reset) {
-            const serverTime = new Date(config.last_reset).getTime()
-            const clientTime = prevClientTimes[config.core]
-            
-            // Only keep client time if it was set very recently (within last 5 seconds)
-            // and server time is not significantly newer (within 10 seconds of client time)
-            // This allows immediate UI feedback for manual resets while still syncing with server
-            const clientTimeAge = clientTime ? now - clientTime : Infinity
-            const timeDiff = clientTime ? Math.abs(serverTime - clientTime) : Infinity
-            
-            if (clientTime && clientTimeAge < 5000 && timeDiff < 10000) {
-              // Keep client time if it was set very recently and close to server time
-              updated[config.core] = clientTime
-              console.log(`[CoreHealth] Keeping recent client reset time for ${config.core}: client=${new Date(clientTime).toISOString()}, server=${new Date(serverTime).toISOString()}`)
-            } else {
-              // Always use server time as source of truth
-              updated[config.core] = serverTime
-              if (clientTime) {
-                console.log(`[CoreHealth] Updated ${config.core} reset time from server: server=${new Date(serverTime).toISOString()}, old client=${new Date(clientTime).toISOString()}`)
-              }
-            }
+          const currentValue = config.last_reset
+          const previousValue = prevValues[config.core]
+          
+          // If last_reset value changed, reset the counter to 0
+          if (currentValue !== previousValue) {
+            setResetCounters(prevCounters => ({
+              ...prevCounters,
+              [config.core]: 0
+            }))
+          } else if (previousValue === undefined && currentValue) {
+            // First time loading: initialize counter to 0 if there's a last_reset
+            setResetCounters(prevCounters => ({
+              ...prevCounters,
+              [config.core]: 0
+            }))
           }
+          
+          updated[config.core] = currentValue
         })
         
         return updated
@@ -88,11 +83,17 @@ const CoreHealth = () => {
     return () => clearInterval(interval)
   }, [])
 
-  // Update timer display every second for real-time updates (especially for "Just now")
+  // Increment reset counters every second (standalone timer)
   useEffect(() => {
     const timerInterval = setInterval(() => {
-      setTimerTick(prev => prev + 1)
-    }, 1000) // Update every second for real-time feel
+      setResetCounters(prevCounters => {
+        const updated: Record<string, number> = {}
+        Object.keys(prevCounters).forEach(core => {
+          updated[core] = (prevCounters[core] || 0) + 1
+        })
+        return updated
+      })
+    }, 1000)
     return () => clearInterval(timerInterval)
   }, [])
 
@@ -102,19 +103,14 @@ const CoreHealth = () => {
     
     setUpdating(core)
     
-    // Store client-side reset time immediately (independent of server)
-    const clientResetTime = Date.now()
-    setClientResetTimes(prev => ({
+    // Reset counter to 0 immediately (standalone timer)
+    setResetCounters(prev => ({
       ...prev,
-      [core]: clientResetTime
+      [core]: 0
     }))
-    
-    // Force timer update immediately
-    setTimerTick(prev => prev + 1)
     
     try {
       await api.post(`/core-health/reset/${core}`)
-      // Don't wait for or use server response for timer - we use client time
     } catch (error) {
       console.error(`Failed to reset ${core}:`, error)
       alert(`Failed to reset ${core}`)
@@ -160,65 +156,26 @@ const CoreHealth = () => {
     }
   }
 
-  const formatTimeAgo = (core: string, clientResetTime: number | undefined, serverTimestamp: string | null) => {
-    // Use client-side reset time if available (preferred - independent of server time)
-    if (clientResetTime) {
-      const now = Date.now()
-      const diffMs = now - clientResetTime
-      
-      if (diffMs < 0) return "Just now"
-      
-      const diffSecs = Math.floor(diffMs / 1000)
-      const diffMins = Math.floor(diffMs / 60000)
-      
-      if (diffSecs < 10) return "Just now"
-      if (diffSecs < 60) return `${diffSecs} seconds ago`
-      if (diffMins < 1) return "Just now"
-      if (diffMins === 1) return "1 minute ago"
-      if (diffMins < 60) return `${diffMins} minutes ago`
-      
-      const diffHours = Math.floor(diffMins / 60)
-      if (diffHours === 1) return "1 hour ago"
-      if (diffHours < 24) return `${diffHours} hours ago`
-      
-      const diffDays = Math.floor(diffHours / 24)
-      if (diffDays === 1) return "1 day ago"
-      return `${diffDays} days ago`
-    }
-    
-    // Fallback to server timestamp if no client reset time (e.g., on page load)
-    if (!serverTimestamp) return "Never"
-    
-    try {
-      const date = new Date(serverTimestamp)
-      if (isNaN(date.getTime())) {
-        return "Never"
-      }
-      
-      const now = Date.now()
-      const diffMs = now - date.getTime()
-      
-      if (diffMs < 0) return "Just now"
-      
-      const diffSecs = Math.floor(diffMs / 1000)
-      const diffMins = Math.floor(diffMs / 60000)
-      
-      if (diffSecs < 10) return "Just now"
-      if (diffSecs < 60) return `${diffSecs} seconds ago`
-      if (diffMins < 1) return "Just now"
-      if (diffMins === 1) return "1 minute ago"
-      if (diffMins < 60) return `${diffMins} minutes ago`
-      
-      const diffHours = Math.floor(diffMins / 60)
-      if (diffHours === 1) return "1 hour ago"
-      if (diffHours < 24) return `${diffHours} hours ago`
-      
-      const diffDays = Math.floor(diffHours / 24)
-      if (diffDays === 1) return "1 day ago"
-      return `${diffDays} days ago`
-    } catch (error) {
+  const formatTimeAgo = (core: string, counter: number | undefined) => {
+    // Standalone counter: just format the seconds count
+    if (counter === undefined || counter === null) {
       return "Never"
     }
+    
+    if (counter < 10) return "Just now"
+    if (counter < 60) return `${counter} seconds ago`
+    
+    const minutes = Math.floor(counter / 60)
+    if (minutes === 1) return "1 minute ago"
+    if (minutes < 60) return `${minutes} minutes ago`
+    
+    const hours = Math.floor(minutes / 60)
+    if (hours === 1) return "1 hour ago"
+    if (hours < 24) return `${hours} hours ago`
+    
+    const days = Math.floor(hours / 24)
+    if (days === 1) return "1 day ago"
+    return `${days} days ago`
   }
 
   if (loading) {
@@ -359,8 +316,8 @@ const CoreHealth = () => {
                       />
                     </div>
                     <div className="text-xs text-gray-500 dark:text-gray-400">
-                      <div key={`${coreHealth.core}-${timerTick}`}>
-                        Last reset: {formatTimeAgo(coreHealth.core, clientResetTimes[coreHealth.core], config.last_reset)}
+                      <div key={`${coreHealth.core}-${resetCounters[coreHealth.core] || 0}`}>
+                        Last reset: {formatTimeAgo(coreHealth.core, resetCounters[coreHealth.core])}
                       </div>
                     </div>
                   </div>
