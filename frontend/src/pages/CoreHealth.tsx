@@ -27,6 +27,7 @@ const CoreHealth = () => {
   const [configs, setConfigs] = useState<ResetConfig[]>([])
   const [loading, setLoading] = useState(true)
   const [updating, setUpdating] = useState<string | null>(null)
+  const [timerTick, setTimerTick] = useState(0)
 
   const fetchData = async () => {
     try {
@@ -49,6 +50,14 @@ const CoreHealth = () => {
     return () => clearInterval(interval)
   }, [])
 
+  // Update timer display every second for real-time updates (especially for "Just now")
+  useEffect(() => {
+    const timerInterval = setInterval(() => {
+      setTimerTick(prev => prev + 1)
+    }, 1000) // Update every second for real-time feel
+    return () => clearInterval(timerInterval)
+  }, [])
+
   const handleReset = async (core: string) => {
     if (!confirm(`Are you sure you want to reset ${core} core?`)) return
     
@@ -56,6 +65,7 @@ const CoreHealth = () => {
     try {
       const response = await api.post(`/core-health/reset/${core}`)
       
+      // Immediately update the config with the new timestamp
       if (response.data?.last_reset) {
         setConfigs(prevConfigs => 
           prevConfigs.map(config => 
@@ -64,8 +74,11 @@ const CoreHealth = () => {
               : config
           )
         )
+        // Force timer update
+        setTimerTick(prev => prev + 1)
       }
       
+      // Refresh data to ensure consistency
       await fetchData()
     } catch (error) {
       console.error(`Failed to reset ${core}:`, error)
@@ -117,8 +130,11 @@ const CoreHealth = () => {
     const date = new Date(dateStr)
     const now = new Date()
     const diffMs = now.getTime() - date.getTime()
+    const diffSecs = Math.floor(diffMs / 1000)
     const diffMins = Math.floor(diffMs / 60000)
     
+    if (diffSecs < 10) return "Just now"
+    if (diffSecs < 60) return `${diffSecs} seconds ago`
     if (diffMins < 1) return "Just now"
     if (diffMins === 1) return "1 minute ago"
     if (diffMins < 60) return `${diffMins} minutes ago`
@@ -271,6 +287,8 @@ const CoreHealth = () => {
                     </div>
                     <div className="text-xs text-gray-500 dark:text-gray-400">
                       <div>Last reset: {formatTimeAgo(config.last_reset)}</div>
+                      {/* Force re-render when timerTick changes - timerTick is used to trigger updates */}
+                      <span className="hidden">{timerTick}</span>
                     </div>
                   </div>
                 )}
