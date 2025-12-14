@@ -174,6 +174,7 @@ const getBackhaulDisplayInfo = (spec: Record<string, any> | undefined): Backhaul
 const Tunnels = () => {
   const [tunnels, setTunnels] = useState<Tunnel[]>([])
   const [nodes, setNodes] = useState<any[]>([])
+  const [servers, setServers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showAddModal, setShowAddModal] = useState(false)
   const [editingTunnel, setEditingTunnel] = useState<Tunnel | null>(null)
@@ -195,7 +196,15 @@ const Tunnels = () => {
         api.get('/nodes'),
       ])
       setTunnels(tunnelsRes.data)
-      setNodes(nodesRes.data)
+      // Filter nodes: iran nodes and foreign servers
+      const iranNodes = nodesRes.data.filter((node: any) => 
+        node.metadata?.role === 'iran' || !node.metadata?.role  // Default to iran for backward compatibility
+      )
+      const foreignServers = nodesRes.data.filter((node: any) => 
+        node.metadata?.role === 'foreign'
+      )
+      setNodes(iranNodes)
+      setServers(foreignServers)
     } catch (error) {
       console.error('Failed to fetch data:', error)
     } finally {
@@ -404,6 +413,7 @@ const Tunnels = () => {
       {showAddModal && (
         <AddTunnelModal
           nodes={nodes}
+          servers={servers}
           onClose={() => setShowAddModal(false)}
           onSuccess={() => {
             setShowAddModal(false)
@@ -913,16 +923,19 @@ const EditTunnelModal = ({ tunnel, onClose, onSuccess }: EditTunnelModalProps) =
 
 interface AddTunnelModalProps {
   nodes: any[]
+  servers: any[]
   onClose: () => void
   onSuccess: () => void
 }
 
-const AddTunnelModal = ({ nodes, onClose, onSuccess }: AddTunnelModalProps) => {
+const AddTunnelModal = ({ nodes, servers, onClose, onSuccess }: AddTunnelModalProps) => {
   const [formData, setFormData] = useState({
     name: '',
     core: 'xray',
     type: 'tcp',
     node_id: '',
+    foreign_node_id: '',
+    iran_node_id: '',
     port: 8080,
     remote_ip: '127.0.0.1',
     rathole_remote_addr: '23333',
@@ -1025,7 +1038,9 @@ const AddTunnelModal = ({ nodes, onClose, onSuccess }: AddTunnelModalProps) => {
         name: formData.name,
         core: formData.core,
         type: tunnelType,
-        node_id: formData.node_id || null,
+        node_id: formData.node_id || formData.iran_node_id || null,
+        foreign_node_id: formData.foreign_node_id || null,
+        iran_node_id: formData.iran_node_id || formData.node_id || null,
         spec: spec,
       }
       await api.post('/tunnels', payload)
@@ -1081,31 +1096,31 @@ const AddTunnelModal = ({ nodes, onClose, onSuccess }: AddTunnelModalProps) => {
       <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-2xl my-8">
         <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Create Tunnel</h2>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Name
-              </label>
-              <input
-                type="text"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-                required
-              />
-            </div>
-            {formData.core !== 'xray' && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Name
+            </label>
+            <input
+              type="text"
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+              required
+            />
+          </div>
+          {formData.core !== 'xray' && (
+            <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Node
+                  Iran Node (Client)
                 </label>
                 <select
-                  value={formData.node_id}
-                  onChange={(e) => setFormData({ ...formData, node_id: e.target.value })}
+                  value={formData.iran_node_id || formData.node_id}
+                  onChange={(e) => setFormData({ ...formData, iran_node_id: e.target.value, node_id: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
-                required={formData.core === 'rathole' || formData.core === 'backhaul' || formData.core === 'frp'}
+                  required={formData.core === 'rathole' || formData.core === 'backhaul' || formData.core === 'frp' || formData.core === 'chisel'}
                 >
-                  <option value="">Select a node</option>
+                  <option value="">Select an Iran node</option>
                   {nodes.map((node) => (
                     <option key={node.id} value={node.id}>
                       {node.name}
@@ -1113,8 +1128,26 @@ const AddTunnelModal = ({ nodes, onClose, onSuccess }: AddTunnelModalProps) => {
                   ))}
                 </select>
               </div>
-            )}
-          </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Foreign Server (Server)
+                </label>
+                <select
+                  value={formData.foreign_node_id}
+                  onChange={(e) => setFormData({ ...formData, foreign_node_id: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white"
+                  required={formData.core === 'rathole' || formData.core === 'backhaul' || formData.core === 'frp' || formData.core === 'chisel'}
+                >
+                  <option value="">Select a foreign server</option>
+                  {servers.map((server) => (
+                    <option key={server.id} value={server.id}>
+                      {server.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-4">
             <div>

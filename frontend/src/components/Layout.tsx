@@ -49,6 +49,7 @@ const Layout = ({ children }: LayoutProps) => {
   const navItems = [
     { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/nodes', label: 'Nodes', icon: Network },
+    { path: '/servers', label: 'Servers', icon: Network },
     { path: '/tunnels', label: 'Tunnels', icon: Activity },
     { path: '/core-health', label: 'Core Health', icon: Heart },
     { path: '/logs', label: 'Logs', icon: FileText },

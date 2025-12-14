@@ -1,0 +1,290 @@
+import { useEffect, useState } from 'react'
+import { Plus, Copy, Trash2, CheckCircle, XCircle } from 'lucide-react'
+import api from '../api/client'
+
+interface Server {
+  id: string
+  name: string
+  fingerprint: string
+  status: string
+  registered_at: string
+  last_seen: string
+  metadata: Record<string, any>
+}
+
+const Servers = () => {
+  const [servers, setServers] = useState<Server[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => {
+    fetchServers()
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('add') === 'true') {
+      setShowAddModal(true)
+      window.history.replaceState({}, '', '/servers')
+    }
+  }, [])
+
+  const fetchServers = async () => {
+    try {
+      const response = await api.get('/nodes')
+      // Filter only foreign servers
+      const foreignServers = response.data.filter((node: Server) => 
+        node.metadata?.role === 'foreign'
+      )
+      setServers(foreignServers)
+    } catch (error) {
+      console.error('Failed to fetch servers:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (error) {
+      console.error('Failed to copy to clipboard:', error)
+      alert('Failed to copy to clipboard. Please copy manually.')
+    }
+  }
+
+  const deleteServer = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this server?')) return
+    
+    try {
+      await api.delete(`/nodes/${id}`)
+      fetchServers()
+    } catch (error) {
+      console.error('Failed to delete server:', error)
+      alert('Failed to delete server')
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 dark:border-blue-400 mb-4"></div>
+          <p className="text-gray-500 dark:text-gray-400">Loading servers...</p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="w-full max-w-7xl mx-auto">
+      <div className="flex justify-between items-center mb-8">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Foreign Servers</h1>
+          <p className="text-gray-500 dark:text-gray-400">Manage your foreign tunnel servers</p>
+        </div>
+        <div className="flex gap-3">
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 font-medium shadow-sm hover:shadow-md flex items-center gap-2"
+          >
+            <Plus size={20} />
+            Add Server
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden shadow-sm">
+        <table className="w-full">
+          <thead className="bg-gray-50 dark:bg-gray-700/50 border-b border-gray-200 dark:border-gray-600">
+            <tr>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                Name
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                Fingerprint
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                Status
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                IP Address
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                Last Seen
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                Actions
+              </th>
+            </tr>
+          </thead>
+          <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+            {servers.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
+                  No foreign servers found. Add a server to get started.
+                </td>
+              </tr>
+            ) : (
+              servers.map((server) => (
+                <tr key={server.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="text-sm font-medium text-gray-900 dark:text-white">{server.name}</div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="flex items-center gap-2">
+                      <code className="text-sm text-gray-600 dark:text-gray-300 font-mono">{server.fingerprint}</code>
+                      <button
+                        onClick={() => copyToClipboard(server.fingerprint)}
+                        className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded text-gray-600 dark:text-gray-400"
+                      >
+                        <Copy size={14} />
+                      </button>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <span
+                      className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
+                        server.status === 'active'
+                          ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200'
+                          : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200'
+                      }`}
+                    >
+                      {server.status === 'active' ? (
+                        <CheckCircle size={12} />
+                      ) : (
+                        <XCircle size={12} />
+                      )}
+                      {server.status}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                    {server.metadata?.ip_address || 'N/A'}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                    {new Date(server.last_seen).toLocaleString()}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">
+                    <button
+                      onClick={() => deleteServer(server.id)}
+                      className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {showAddModal && (
+        <AddServerModal
+          onClose={() => setShowAddModal(false)}
+          onSuccess={() => {
+            setShowAddModal(false)
+            fetchServers()
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+interface AddServerModalProps {
+  onClose: () => void
+  onSuccess: () => void
+}
+
+const AddServerModal = ({ onClose, onSuccess }: AddServerModalProps) => {
+  const [name, setName] = useState('')
+  const [ipAddress, setIpAddress] = useState('')
+  const [apiPort, setApiPort] = useState('8888')
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    try {
+      await api.post('/nodes', { 
+        name, 
+        ip_address: ipAddress, 
+        api_port: parseInt(apiPort) || 8888,
+        metadata: {
+          role: 'foreign'  // Set role to foreign for servers
+        } 
+      })
+      onSuccess()
+    } catch (error) {
+      console.error('Failed to add server:', error)
+      alert('Failed to add server')
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
+        <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Add Foreign Server</h2>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Server Name
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-400"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              IP Address
+            </label>
+            <input
+              type="text"
+              value={ipAddress}
+              onChange={(e) => setIpAddress(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-400"
+              placeholder="e.g., 192.168.1.100"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              API Port
+            </label>
+            <input
+              type="number"
+              value={apiPort}
+              onChange={(e) => setApiPort(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-400"
+              placeholder="8888"
+              min="1"
+              max="65535"
+              required
+            />
+          </div>
+          <div className="flex gap-3 justify-end">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 font-medium shadow-sm hover:shadow-md"
+            >
+              Add Server
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+export default Servers
+

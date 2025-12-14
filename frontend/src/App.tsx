@@ -5,6 +5,7 @@ import Layout from './components/Layout'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Nodes from './pages/Nodes'
+import Servers from './pages/Servers'
 import Tunnels from './pages/Tunnels'
 import Logs from './pages/Logs'
 import CoreHealth from './pages/CoreHealth'
@@ -73,6 +74,16 @@ const AppRoutes = () => {
           <ProtectedRoute>
             <Layout>
               <Nodes />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/servers"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <Servers />
             </Layout>
           </ProtectedRoute>
         }
