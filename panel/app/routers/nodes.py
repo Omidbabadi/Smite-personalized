@@ -124,17 +124,17 @@ async def create_node(node: NodeCreate, db: AsyncSession = Depends(get_db)):
     
     result = await db.execute(select(Settings).where(Settings.key == "frp"))
     frp_setting = result.scalar_one_or_none()
-        if frp_setting and frp_setting.value and frp_setting.value.get("enabled"):
-            panel_host = node.metadata.get("panel_address", "").split(":")[0] if node.metadata else ""
-            if not panel_host or panel_host == "panel.example.com":
-                import socket
-                try:
-                    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                    s.connect(("8.8.8.8", 80))
-                    panel_host = s.getsockname()[0]
-                    s.close()
-                except:
-                    panel_host = "127.0.0.1"
+    if frp_setting and frp_setting.value and frp_setting.value.get("enabled"):
+        panel_host = node.metadata.get("panel_address", "").split(":")[0] if node.metadata else ""
+        if not panel_host or panel_host == "panel.example.com":
+            import socket
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.connect(("8.8.8.8", 80))
+                panel_host = s.getsockname()[0]
+                s.close()
+            except:
+                panel_host = "127.0.0.1"
         
         response_metadata["frp_config"] = {
             "enabled": True,
