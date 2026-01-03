@@ -266,112 +266,134 @@ const Tunnels = () => {
         </button>
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-3">
         {tunnels.map((tunnel) => {
-          const getPortInfo = () => {
-            const listenPort = tunnel.spec?.listen_port || tunnel.spec?.remote_port || 'N/A'
-            if (tunnel.core === 'rathole') {
-              const ratholePort = tunnel.spec?.remote_addr ? tunnel.spec.remote_addr.split(':')[1] : 'N/A'
-              const localPort = tunnel.spec?.local_addr ? (() => {
-                const parsed = parseAddressPort(tunnel.spec.local_addr)
-                return parsed.port?.toString() || 'N/A'
-              })() : 'N/A'
-              return `Listen: ${listenPort} | Rathole: ${ratholePort} | Local: ${localPort}`
-            } else if (tunnel.core === 'chisel') {
-              const controlPort = tunnel.spec?.control_port || (tunnel.spec?.listen_port ? (parseInt(tunnel.spec.listen_port.toString()) + 10000).toString() : 'N/A')
-              const localPort = tunnel.spec?.local_addr ? (() => {
-                const parsed = parseAddressPort(tunnel.spec.local_addr)
-                return parsed.port?.toString() || 'N/A'
-              })() : 'N/A'
-              return `Listen: ${listenPort} | Control: ${controlPort} | Local: ${localPort}`
-            } else if (tunnel.core === 'gost') {
-              const forwardTo = tunnel.spec?.forward_to || (tunnel.spec?.remote_ip && tunnel.spec?.remote_port ? formatAddressPort(tunnel.spec.remote_ip, tunnel.spec.remote_port) : 'N/A')
-              return `Listen: ${listenPort} | Forward: ${forwardTo}`
-            } else if (tunnel.core === 'frp') {
-              const frpPort = tunnel.spec?.bind_port || '7000'
-              const localPort = tunnel.spec?.local_port || 'N/A'
-              return `Listen: ${listenPort} | FRP: ${frpPort} | Local: ${localPort}`
-            } else if (tunnel.core === 'backhaul') {
-              const info = getBackhaulDisplayInfo(tunnel.spec)
-              return `Control: ${info.controlPort} | Public: ${info.publicPort} | Target: ${info.target}`
+          // Extract ports from spec
+          const getPorts = (): string => {
+            if (tunnel.spec?.ports) {
+              if (Array.isArray(tunnel.spec.ports)) {
+                // For Backhaul, ports are in format "8080=127.0.0.1:8080", extract just the port numbers
+                if (tunnel.core === 'backhaul' && typeof tunnel.spec.ports[0] === 'string' && tunnel.spec.ports[0].includes('=')) {
+                  return tunnel.spec.ports.map(p => {
+                    const portPart = p.split('=')[0]
+                    const port = portPart.includes(':') ? portPart.split(':')[1] : portPart
+                    return port
+                  }).join(', ')
+                }
+                // For other cores, ports are numbers
+                return tunnel.spec.ports.map(p => typeof p === 'object' && p.local ? p.local : p).join(', ')
+              } else if (typeof tunnel.spec.ports === 'string') {
+                return tunnel.spec.ports
+              }
             }
-            return `Listen: ${listenPort}`
+            // Fallback to single port
+            const port = tunnel.spec?.listen_port || tunnel.spec?.remote_port
+            return port ? port.toString() : 'N/A'
           }
+
+          // Get core badge color
+          const getCoreBadge = () => {
+            const coreColors: Record<string, { bg: string; text: string; border: string }> = {
+              rathole: { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-800 dark:text-purple-200', border: 'border-purple-300 dark:border-purple-700' },
+              backhaul: { bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-800 dark:text-blue-200', border: 'border-blue-300 dark:border-blue-700' },
+              chisel: { bg: 'bg-orange-100 dark:bg-orange-900/30', text: 'text-orange-800 dark:text-orange-200', border: 'border-orange-300 dark:border-orange-700' },
+              frp: { bg: 'bg-cyan-100 dark:bg-cyan-900/30', text: 'text-cyan-800 dark:text-cyan-200', border: 'border-cyan-300 dark:border-cyan-700' },
+              gost: { bg: 'bg-indigo-100 dark:bg-indigo-900/30', text: 'text-indigo-800 dark:text-indigo-200', border: 'border-indigo-300 dark:border-indigo-700' },
+            }
+            return coreColors[tunnel.core] || { bg: 'bg-gray-100 dark:bg-gray-700', text: 'text-gray-800 dark:text-gray-200', border: 'border-gray-300 dark:border-gray-600' }
+          }
+
+          const coreBadge = getCoreBadge()
+          const ports = getPorts()
+          const iranNode = nodes.find(n => n.id === tunnel.iran_node_id || n.id === tunnel.node_id)
+          const foreignServer = servers.find(s => s.id === tunnel.foreign_node_id)
 
           return (
             <div
               key={tunnel.id}
-              className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4 transition-all hover:shadow-md"
+              className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-5 transition-all hover:shadow-lg hover:border-gray-300 dark:hover:border-gray-600"
             >
-              <div className="flex items-center justify-between gap-4">
-                {/* Status Badge */}
-                <span
-                  className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap ${
-                    tunnel.status === 'active'
-                      ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200'
-                      : tunnel.status === 'error'
-                      ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200'
-                      : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200'
-                  }`}
-                >
-                  {tunnel.status}
-                </span>
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start gap-4 flex-1 min-w-0">
+                  {/* Status Badge */}
+                  <span
+                    className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap shrink-0 ${
+                      tunnel.status === 'active'
+                        ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200'
+                        : tunnel.status === 'error'
+                        ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200'
+                        : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200'
+                    }`}
+                  >
+                    {tunnel.status}
+                  </span>
 
-                {/* Name and Core/Type */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-sm font-semibold text-gray-900 dark:text-white truncate">{tunnel.name}</h3>
-                    <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                      {tunnel.core === 'gost' ? 'gost' : tunnel.core} / {tunnel.type}
-                    </span>
+                  <div className="flex-1 min-w-0">
+                    {/* Core Badge and Name */}
+                    <div className="flex items-center gap-3 mb-2">
+                      <span
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide border ${coreBadge.bg} ${coreBadge.text} ${coreBadge.border} shrink-0`}
+                      >
+                        {tunnel.core}
+                      </span>
+                      <h3 className="text-base font-semibold text-gray-900 dark:text-white truncate">{tunnel.name}</h3>
+                    </div>
+
+                    {/* Ports */}
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Ports:</span>
+                      <span className="text-sm font-mono font-semibold text-gray-700 dark:text-gray-300">{ports}</span>
+                    </div>
+
+                    {/* Node and Server Info */}
+                    <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
+                      {iranNode && (
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-medium">Node:</span>
+                          <span className="text-gray-700 dark:text-gray-300">{iranNode.name || iranNode.id.substring(0, 8)}</span>
+                        </div>
+                      )}
+                      {foreignServer && (
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-medium">Server:</span>
+                          <span className="text-gray-700 dark:text-gray-300">{foreignServer.name || foreignServer.id.substring(0, 8)}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Error Message */}
+                    {tunnel.status === 'error' && tunnel.error_message && (
+                      <div className="mt-2 text-xs text-red-600 dark:text-red-400">
+                        {tunnel.error_message}
+                      </div>
+                    )}
                   </div>
-                  {tunnel.node_id && (
-                    <p className="text-xs text-gray-400 dark:text-gray-500 truncate">
-                      Node: {nodes.find(n => n.id === tunnel.node_id)?.name || tunnel.node_id.substring(0, 8)}
-                    </p>
-                  )}
                 </div>
-
-                {/* Port Info */}
-                <div className="flex-1 text-xs text-gray-600 dark:text-gray-400 truncate hidden md:block">
-                  {getPortInfo()}
-                </div>
-
-                {/* Error Message (if any) */}
-                {tunnel.status === 'error' && tunnel.error_message && (
-                  <div className="flex-1 text-xs text-red-600 dark:text-red-400 truncate max-w-xs">
-                    {tunnel.error_message}
-                  </div>
-                )}
 
                 {/* Action Buttons */}
-                <div className="flex gap-2">
+                <div className="flex gap-2 shrink-0">
                   <button
                     onClick={() => reapplyTunnel(tunnel)}
-                    className="p-2 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg transition-colors"
+                    className="p-2.5 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-lg transition-colors"
                     title="Reapply tunnel"
                   >
-                    <RotateCw size={16} />
+                    <RotateCw size={18} />
                   </button>
                   <button
                     onClick={() => setEditingTunnel(tunnel)}
-                    className="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
+                    className="p-2.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
                     title="Edit tunnel"
                   >
-                    <Edit2 size={16} />
+                    <Edit2 size={18} />
                   </button>
                   <button
                     onClick={() => deleteTunnel(tunnel.id)}
-                    className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                    className="p-2.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
                     title="Delete tunnel"
                   >
-                    <Trash2 size={16} />
+                    <Trash2 size={18} />
                   </button>
                 </div>
-              </div>
-              {/* Port Info for mobile */}
-              <div className="mt-2 text-xs text-gray-600 dark:text-gray-400 md:hidden">
-                {getPortInfo()}
               </div>
             </div>
           )

@@ -336,7 +336,7 @@ class BackhaulAdapter:
                 bind_addr = f"{bind_ip}:{control_port}"
             
             ports = spec.get("ports")
-            if not ports:
+            if not ports or (isinstance(ports, list) and len(ports) == 0):
                 listen_port = spec.get("public_port") or spec.get("listen_port")
                 target_addr = spec.get("target_addr")
                 if not target_addr:
@@ -350,6 +350,12 @@ class BackhaulAdapter:
                     ports = [str(listen_port)]
                 else:
                     ports = []
+            
+            # Ensure ports is a list of strings
+            if isinstance(ports, list):
+                ports = [str(p) for p in ports if p]
+            else:
+                ports = [str(ports)] if ports else []
             
             server_config: Dict[str, Any] = {
                 "bind_addr": bind_addr,
