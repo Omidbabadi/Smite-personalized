@@ -6,11 +6,13 @@ from typing import List
 from datetime import datetime
 from pydantic import BaseModel
 import httpx
+import logging
 
 from app.database import get_db
 from app.models import Node, Settings
 from app.node_client import NodeClient
 
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -219,6 +221,8 @@ async def get_node(node_id: str, db: AsyncSession = Depends(get_db)):
 @router.put("/{node_id}/frp-status")
 async def update_frp_status(node_id: str, frp_status: dict, db: AsyncSession = Depends(get_db)):
     """Update node FRP connection status"""
+    from sqlalchemy.orm.attributes import flag_modified
+    
     result = await db.execute(select(Node).where(Node.id == node_id))
     node = result.scalar_one_or_none()
     if not node:
@@ -230,9 +234,14 @@ async def update_frp_status(node_id: str, frp_status: dict, db: AsyncSession = D
     if frp_status.get("connected") and frp_status.get("remote_port"):
         node.node_metadata["frp_remote_port"] = frp_status.get("remote_port")
         node.node_metadata["frp_connected"] = True
+        logger.info(f"[FRP] Node {node_id} FRP status updated: remote_port={frp_status.get('remote_port')}")
     else:
         node.node_metadata["frp_connected"] = False
         node.node_metadata.pop("frp_remote_port", None)
+        logger.info(f"[FRP] Node {node_id} FRP status cleared")
+    
+    # Mark JSON column as modified so SQLAlchemy detects the change
+    flag_modified(node, "node_metadata")
     
     await db.commit()
     await db.refresh(node)
