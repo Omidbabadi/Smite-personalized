@@ -38,15 +38,22 @@ class NodeClient:
         if frp_settings and frp_settings.get("enabled"):
             frp_remote_port = node.node_metadata.get("frp_remote_port") if node.node_metadata else None
             if frp_remote_port:
-                # FRP is enabled and node has reported its remote port - use FRP only
-                logger.info(f"[FRP] Using FRP tunnel to communicate with node {node.id} (remote_port={frp_remote_port})")
-                return (f"http://127.0.0.1:{frp_remote_port}", True)
+                # Verify FRP server is running before using FRP
+                from app.frp_comm_manager import frp_comm_manager
+                if not frp_comm_manager.is_running():
+                    logger.warning(f"[HTTP] FRP enabled but FRP server not running, falling back to HTTP for node {node.id}")
+                    # Fall through to HTTP
+                else:
+                    # Use FRP - the server is running, tunnel should be available
+                    # Note: If connection fails, retry logic will handle it
+                    logger.info(f"[FRP] Using FRP tunnel to communicate with node {node.id} (remote_port={frp_remote_port})")
+                    return (f"http://127.0.0.1:{frp_remote_port}", True)
             else:
                 # FRP is enabled but node hasn't reported its remote port yet (during initial setup)
                 logger.warning(f"[HTTP] FRP enabled but node {node.id} has no frp_remote_port yet, temporarily using HTTP")
                 logger.warning(f"[HTTP] This should only happen during node registration. After FRP setup, all communication will use FRP.")
         
-        # FRP is not enabled - use HTTP
+        # FRP is not enabled or not available - use HTTP
         node_address = node.node_metadata.get("api_address", f"http://localhost:8888") if node.node_metadata else f"http://localhost:8888"
         if not node_address.startswith("http"):
             node_address = f"http://{node_address}"
@@ -99,7 +106,8 @@ class NodeClient:
                         else:
                             error_msg = f"Network error: {str(e)}"
                             if using_frp:
-                                error_msg += f" (FRP tunnel connection failed after {max_retries} attempts. Check FRP server logs.)"
+                                remote_port = url.split(":")[-1].split("/")[0] if ":" in url else "unknown"
+                                error_msg += f" (FRP tunnel connection failed after {max_retries} attempts. The panel may not be able to reach FRP server on 127.0.0.1:{remote_port}. Check if panel and FRP server are in the same network namespace, or check FRP server logs.)"
                             return {"status": "error", "message": error_msg}
                 
                 # Should not reach here, but just in case

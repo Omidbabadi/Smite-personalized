@@ -348,9 +348,16 @@ async def create_tunnel(tunnel: TunnelCreate, request: Request, db: AsyncSession
                     tunnel_type = "tcp"  # Default to tcp if invalid
                 client_spec["type"] = tunnel_type
                 local_ip = client_spec.get("local_ip") or iran_node_ip
-                local_port = client_spec.get("local_port") or bind_port
+                # Ensure local_port is set - required by FRP adapter
+                local_port = client_spec.get("local_port")
+                if not local_port:
+                    # If not provided, use listen_port or remote_port from spec, or default to bind_port
+                    local_port = spec.get("listen_port") or spec.get("remote_port") or bind_port
                 client_spec["local_ip"] = local_ip
                 client_spec["local_port"] = local_port
+                # Ensure remote_port is set for FRP
+                if "remote_port" not in client_spec:
+                    client_spec["remote_port"] = spec.get("remote_port") or spec.get("listen_port") or bind_port
                 
             elif db_tunnel.core == "backhaul":
                 transport = server_spec.get("transport") or server_spec.get("type") or "tcp"
@@ -1204,8 +1211,14 @@ async def apply_tunnel(tunnel_id: str, request: Request, db: AsyncSession = Depe
         all_nodes = result.scalars().all()
         foreign_nodes = [n for n in all_nodes if n.node_metadata and n.node_metadata.get("role") == "foreign"]
         if not foreign_nodes:
-            raise HTTPException(status_code=404, detail="No foreign node found")
+            raise HTTPException(status_code=404, detail="No foreign node found. Please ensure at least one node has role='foreign' (set NODE_ROLE=foreign on the foreign node).")
         foreign_node = foreign_nodes[0]
+        
+        # Verify node roles are correct
+        if iran_node.node_metadata.get("role") != "iran":
+            raise HTTPException(status_code=400, detail=f"Node {iran_node.id} is not an iran node (role={iran_node.node_metadata.get('role')}). Set NODE_ROLE=iran on the Iran node.")
+        if foreign_node.node_metadata.get("role") != "foreign":
+            raise HTTPException(status_code=400, detail=f"Node {foreign_node.id} is not a foreign node (role={foreign_node.node_metadata.get('role')}). Set NODE_ROLE=foreign on the foreign node.")
         
         if foreign_node and iran_node:
             try:
