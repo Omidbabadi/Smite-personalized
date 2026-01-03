@@ -254,7 +254,7 @@ async def create_tunnel(tunnel: TunnelCreate, request: Request, db: AsyncSession
                 token = server_spec.get("token")
                 
                 # Handle multiple ports
-                ports = parse_ports_from_spec(spec)
+                ports = parse_ports_from_spec(db_tunnel.spec)
                 if not ports:
                     # Fallback to single port for backward compatibility
                     proxy_port = server_spec.get("remote_port") or server_spec.get("listen_port")
@@ -309,7 +309,7 @@ async def create_tunnel(tunnel: TunnelCreate, request: Request, db: AsyncSession
                 
             elif db_tunnel.core == "chisel":
                 # Handle multiple ports
-                ports = parse_ports_from_spec(spec)
+                ports = parse_ports_from_spec(db_tunnel.spec)
                 if not ports:
                     # Fallback to single port for backward compatibility
                     listen_port = server_spec.get("listen_port") or server_spec.get("remote_port")
@@ -377,49 +377,57 @@ async def create_tunnel(tunnel: TunnelCreate, request: Request, db: AsyncSession
                 local_ip = client_spec.get("local_ip") or iran_node_ip
                 
                 # Handle multiple ports
-                ports = spec.get("ports", [])
+                ports = parse_ports_from_spec(db_tunnel.spec)
                 if ports:
                     # Convert list of port numbers to list of dicts with local and remote
-                    if isinstance(ports[0], (int, str)):
-                        client_spec["ports"] = [{"local": int(p), "remote": int(p)} for p in ports]
-                    else:
-                        client_spec["ports"] = ports
+                    client_spec["ports"] = [{"local": int(p), "remote": int(p)} for p in ports]
                 else:
                     # Fallback to single port for backward compatibility
                     local_port = client_spec.get("local_port")
                     if not local_port:
-                        local_port = spec.get("listen_port") or spec.get("remote_port") or bind_port
+                        local_port = db_tunnel.spec.get("listen_port") or db_tunnel.spec.get("remote_port") or bind_port
                     client_spec["local_ip"] = local_ip
                     client_spec["local_port"] = local_port
                     if "remote_port" not in client_spec:
-                        client_spec["remote_port"] = spec.get("remote_port") or spec.get("listen_port") or bind_port
+                        client_spec["remote_port"] = db_tunnel.spec.get("remote_port") or db_tunnel.spec.get("listen_port") or bind_port
                 
             elif db_tunnel.core == "backhaul":
                 transport = server_spec.get("transport") or server_spec.get("type") or "tcp"
                 import hashlib
                 port_hash = int(hashlib.md5(db_tunnel.id.encode()).hexdigest()[:8], 16)
                 control_port = server_spec.get("control_port") or server_spec.get("listen_port") or (3080 + (port_hash % 1000))
-                public_port = server_spec.get("public_port") or server_spec.get("remote_port") or server_spec.get("listen_port")
                 target_host = server_spec.get("target_host", "127.0.0.1")
-                target_port = server_spec.get("target_port") or public_port
                 token = server_spec.get("token")
                 
-                if not public_port:
-                    db_tunnel.status = "error"
-                    db_tunnel.error_message = "Backhaul requires public_port or remote_port"
-                    await db.commit()
-                    await db.refresh(db_tunnel)
-                    return db_tunnel
+                # Handle multiple ports - Backhaul already has ports array in spec from frontend
+                ports = server_spec.get("ports", [])
+                if not ports or (isinstance(ports, list) and len(ports) == 0):
+                    # Fallback to single port for backward compatibility
+                    public_port = server_spec.get("public_port") or server_spec.get("remote_port") or server_spec.get("listen_port")
+                    target_port = server_spec.get("target_port") or public_port
+                    if not public_port:
+                        db_tunnel.status = "error"
+                        db_tunnel.error_message = "Backhaul requires ports array or public_port/remote_port"
+                        await db.commit()
+                        await db.refresh(db_tunnel)
+                        return db_tunnel
+                    if target_port:
+                        target_addr = f"{target_host}:{target_port}"
+                        ports = [f"{public_port}={target_addr}"]
+                    else:
+                        ports = [str(public_port)]
+                else:
+                    # Ensure ports are in the correct format (list of strings like "8080=127.0.0.1:8080")
+                    if isinstance(ports, list) and ports:
+                        # If ports is a list of numbers, convert to proper format
+                        if isinstance(ports[0], (int, str)) and str(ports[0]).isdigit():
+                            ports = [f"{p}={target_host}:{p}" for p in ports]
                 
                 bind_ip = server_spec.get("bind_ip") or server_spec.get("listen_ip") or "0.0.0.0"
                 server_spec["bind_addr"] = f"{bind_ip}:{control_port}"
                 server_spec["transport"] = transport
                 server_spec["type"] = transport
-                if target_port:
-                    target_addr = f"{target_host}:{target_port}"
-                    server_spec["ports"] = [f"{public_port}={target_addr}"]
-                else:
-                    server_spec["ports"] = [str(public_port)]
+                server_spec["ports"] = ports
                 if token:
                     server_spec["token"] = token
                 
