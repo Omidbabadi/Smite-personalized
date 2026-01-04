@@ -1470,10 +1470,12 @@ async def apply_tunnel(tunnel_id: str, request: Request, db: AsyncSession = Depe
                         raise HTTPException(status_code=400, detail="Iran node has no IP address")
                     
                     server_spec = spec.copy()
+                    server_spec["mode"] = "server"
                     server_spec["bind_port"] = bind_port
                     server_spec["token"] = token
                     
                     client_spec = spec.copy()
+                    client_spec["mode"] = "client"
                     client_spec["server_addr"] = iran_node_ip
                     client_spec["server_port"] = bind_port
                     client_spec["token"] = token

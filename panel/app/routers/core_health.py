@@ -405,6 +405,7 @@ async def _reset_core(core: str, app_or_request, db: AsyncSession):
             elif core == "frp":
                 bind_port = server_spec.get("bind_port", 7000)
                 token = server_spec.get("token")
+                server_spec["mode"] = "server"
                 server_spec["bind_port"] = bind_port
                 if token:
                     server_spec["token"] = token
@@ -413,6 +414,7 @@ async def _reset_core(core: str, app_or_request, db: AsyncSession):
                 if not iran_node_ip:
                     logger.warning(f"Tunnel {tunnel.id}: Iran node has no IP address, skipping")
                     continue
+                client_spec["mode"] = "client"
                 client_spec["server_addr"] = iran_node_ip
                 client_spec["server_port"] = bind_port
                 if token:

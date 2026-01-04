@@ -152,11 +152,13 @@ class TunnelReapplyManager:
                                 continue
                             
                             spec_for_iran = spec.copy()
+                            spec_for_iran["mode"] = "server"
                             spec_for_iran["bind_port"] = bind_port
                             if token:
                                 spec_for_iran["token"] = token
                             
                             spec_for_foreign = spec.copy()
+                            spec_for_foreign["mode"] = "client"
                             spec_for_foreign["server_addr"] = iran_node_ip
                             spec_for_foreign["server_port"] = bind_port
                             if token:
@@ -165,6 +167,19 @@ class TunnelReapplyManager:
                             if tunnel_type not in ["tcp", "udp"]:
                                 tunnel_type = "tcp"
                             spec_for_foreign["type"] = tunnel_type
+                            
+                            ports = spec.get("ports", [])
+                            if not ports:
+                                local_port = spec.get("local_port")
+                                remote_port = spec.get("remote_port") or spec.get("listen_port")
+                                if remote_port and local_port:
+                                    spec_for_foreign["ports"] = [{"local": int(local_port), "remote": int(remote_port)}]
+                                elif remote_port:
+                                    spec_for_foreign["ports"] = [{"local": int(remote_port), "remote": int(remote_port)}]
+                                elif local_port:
+                                    spec_for_foreign["ports"] = [{"local": int(local_port), "remote": int(local_port)}]
+                            else:
+                                spec_for_foreign["ports"] = ports
                             
                             server_response = await client.send_to_node(
                                 node_id=iran_node.id,
