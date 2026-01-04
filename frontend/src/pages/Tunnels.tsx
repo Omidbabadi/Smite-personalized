@@ -379,6 +379,28 @@ const Tunnels = () => {
                       <span className="text-sm font-mono font-semibold text-gray-700 dark:text-gray-300">{ports}</span>
                     </div>
 
+                    {/* Transmission Type and Core Port */}
+                    <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400 mb-2">
+                      {tunnel.type && (
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-medium">Type:</span>
+                          <span className="text-gray-700 dark:text-gray-300 uppercase">{tunnel.type}</span>
+                        </div>
+                      )}
+                      {tunnel.spec?.listen_port && (
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-medium">Core Port:</span>
+                          <span className="text-gray-700 dark:text-gray-300 font-mono">{tunnel.spec.listen_port}</span>
+                        </div>
+                      )}
+                      {tunnel.spec?.remote_port && !tunnel.spec?.listen_port && (
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-medium">Core Port:</span>
+                          <span className="text-gray-700 dark:text-gray-300 font-mono">{tunnel.spec.remote_port}</span>
+                        </div>
+                      )}
+                    </div>
+
                     {/* Node and Server Info */}
                     <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
                       {iranNode && (

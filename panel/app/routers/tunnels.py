@@ -1497,6 +1497,84 @@ async def apply_tunnel(tunnel_id: str, request: Request, db: AsyncSession = Depe
                     else:
                         client_spec["ports"] = ports
                 
+                elif tunnel.core == "rathole":
+                    transport = spec.get("transport") or spec.get("type") or "tcp"
+                    proxy_port = spec.get("remote_port") or spec.get("listen_port")
+                    token = spec.get("token")
+                    
+                    if not proxy_port or not token:
+                        tunnel.status = "error"
+                        tunnel.error_message = "Missing required fields: remote_port/listen_port or token"
+                        await db.commit()
+                        raise HTTPException(status_code=400, detail="Missing required fields: remote_port/listen_port or token")
+                    
+                    from app.utils import parse_address_port
+                    remote_addr = spec.get("remote_addr", "0.0.0.0:23333")
+                    _, control_port, _ = parse_address_port(remote_addr)
+                    if not control_port:
+                        import hashlib
+                        port_hash = int(hashlib.md5(tunnel.id.encode()).hexdigest()[:8], 16)
+                        control_port = 23333 + (port_hash % 1000)
+                    
+                    server_spec = spec.copy()
+                    server_spec["mode"] = "server"
+                    server_spec["bind_addr"] = f"0.0.0.0:{control_port}"
+                    server_spec["proxy_port"] = proxy_port
+                    server_spec["transport"] = transport
+                    server_spec["token"] = token
+                    
+                    iran_node_ip = iran_node.node_metadata.get("ip_address")
+                    if not iran_node_ip:
+                        tunnel.status = "error"
+                        tunnel.error_message = "Iran node has no IP address"
+                        await db.commit()
+                        raise HTTPException(status_code=400, detail="Iran node has no IP address")
+                    
+                    client_spec = spec.copy()
+                    client_spec["mode"] = "client"
+                    transport_lower = transport.lower()
+                    if transport_lower in ("websocket", "ws"):
+                        use_tls = bool(spec.get("websocket_tls") or spec.get("tls"))
+                        protocol = "wss://" if use_tls else "ws://"
+                        client_spec["remote_addr"] = f"{protocol}{iran_node_ip}:{control_port}"
+                    else:
+                        client_spec["remote_addr"] = f"{iran_node_ip}:{control_port}"
+                    client_spec["transport"] = transport
+                    client_spec["token"] = token
+                
+                elif tunnel.core == "chisel":
+                    listen_port = spec.get("listen_port") or spec.get("remote_port")
+                    if not listen_port:
+                        tunnel.status = "error"
+                        tunnel.error_message = "Missing required field: listen_port or remote_port"
+                        await db.commit()
+                        raise HTTPException(status_code=400, detail="Missing required field: listen_port or remote_port")
+                    
+                    import hashlib
+                    port_hash = int(hashlib.md5(tunnel.id.encode()).hexdigest()[:8], 16)
+                    server_control_port = spec.get("control_port") or (int(listen_port) + 10000 + (port_hash % 1000))
+                    
+                    server_spec = spec.copy()
+                    server_spec["mode"] = "server"
+                    server_spec["server_port"] = server_control_port
+                    server_spec["reverse_port"] = listen_port
+                    
+                    iran_node_ip = iran_node.node_metadata.get("ip_address")
+                    if not iran_node_ip:
+                        tunnel.status = "error"
+                        tunnel.error_message = "Iran node has no IP address"
+                        await db.commit()
+                        raise HTTPException(status_code=400, detail="Iran node has no IP address")
+                    
+                    client_spec = spec.copy()
+                    client_spec["mode"] = "client"
+                    from app.utils import is_valid_ipv6_address
+                    if is_valid_ipv6_address(iran_node_ip):
+                        client_spec["server_url"] = f"http://[{iran_node_ip}]:{server_control_port}"
+                    else:
+                        client_spec["server_url"] = f"http://{iran_node_ip}:{server_control_port}"
+                    client_spec["reverse_port"] = listen_port
+                
                 if not iran_node.node_metadata.get("api_address"):
                     iran_node.node_metadata["api_address"] = f"http://{iran_node.node_metadata.get('ip_address', iran_node.fingerprint)}:{iran_node.node_metadata.get('api_port', 8888)}"
                     await db.commit()
@@ -1509,7 +1587,7 @@ async def apply_tunnel(tunnel_id: str, request: Request, db: AsyncSession = Depe
                         "tunnel_id": tunnel.id,
                         "core": tunnel.core,
                         "type": tunnel.type,
-                        "spec": server_spec if tunnel.core in ["backhaul", "frp"] else spec
+                        "spec": server_spec if tunnel.core in ["backhaul", "frp", "rathole", "chisel"] else spec
                     }
                 )
                 
@@ -1532,7 +1610,7 @@ async def apply_tunnel(tunnel_id: str, request: Request, db: AsyncSession = Depe
                         "tunnel_id": tunnel.id,
                         "core": tunnel.core,
                         "type": tunnel.type,
-                        "spec": client_spec if tunnel.core in ["backhaul", "frp"] else spec
+                        "spec": client_spec if tunnel.core in ["backhaul", "frp", "rathole", "chisel"] else spec
                     }
                 )
                 
@@ -1572,7 +1650,10 @@ async def apply_tunnel(tunnel_id: str, request: Request, db: AsyncSession = Depe
             await db.commit()
         
         spec_for_node = tunnel.spec.copy() if tunnel.spec else {}
-        logger.info(f"Reapplying tunnel {tunnel.id} (core={tunnel.core}): original spec={spec_for_node}")
+        logger.info(f"Reapplying tunnel {tunnel.id} (core={tunnel.core}, type={tunnel.type}): original spec={spec_for_node}")
+        
+        if tunnel.core == "gost":
+            spec_for_node["type"] = tunnel.type
         
         if tunnel.core == "frp":
             try:

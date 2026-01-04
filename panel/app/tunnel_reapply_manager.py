@@ -238,9 +238,11 @@ class TunnelReapplyManager:
                                     import hashlib
                                     port_hash = int(hashlib.md5(tunnel.id.encode()).hexdigest()[:8], 16)
                                     control_port = 23333 + (port_hash % 1000)
+                                server_spec["mode"] = "server"
                                 server_spec["bind_addr"] = f"0.0.0.0:{control_port}"
                                 server_spec["proxy_port"] = proxy_port
                                 server_spec["transport"] = transport
+                                server_spec["token"] = token
                                 
                                 iran_node_ip = iran_node.node_metadata.get("ip_address")
                                 if not iran_node_ip:
@@ -252,6 +254,7 @@ class TunnelReapplyManager:
                                     client_spec["remote_addr"] = f"{protocol}{iran_node_ip}:{control_port}"
                                 else:
                                     client_spec["remote_addr"] = f"{iran_node_ip}:{control_port}"
+                                client_spec["mode"] = "client"
                                 client_spec["transport"] = transport
                                 client_spec["token"] = token
                             
@@ -294,13 +297,19 @@ class TunnelReapplyManager:
                                 import hashlib
                                 port_hash = int(hashlib.md5(tunnel.id.encode()).hexdigest()[:8], 16)
                                 server_control_port = server_spec.get("control_port") or (int(listen_port) + 10000 + (port_hash % 1000))
+                                server_spec["mode"] = "server"
                                 server_spec["server_port"] = server_control_port
                                 server_spec["reverse_port"] = listen_port
                                 
                                 iran_node_ip = iran_node.node_metadata.get("ip_address")
                                 if not iran_node_ip:
                                     continue
-                                client_spec["server_url"] = f"http://{iran_node_ip}:{server_control_port}"
+                                from app.utils import is_valid_ipv6_address
+                                if is_valid_ipv6_address(iran_node_ip):
+                                    client_spec["server_url"] = f"http://[{iran_node_ip}]:{server_control_port}"
+                                else:
+                                    client_spec["server_url"] = f"http://{iran_node_ip}:{server_control_port}"
+                                client_spec["mode"] = "client"
                                 client_spec["reverse_port"] = listen_port
                             
                             server_response = await client.send_to_node(
@@ -347,6 +356,9 @@ class TunnelReapplyManager:
                             continue
                         
                         spec = tunnel.spec.copy() if tunnel.spec else {}
+                        
+                        if tunnel.core == "gost":
+                            spec["type"] = tunnel.type
                         
                         if tunnel.core == "frp":
                             spec = prepare_frp_spec_for_node(spec, node, fake_request)
