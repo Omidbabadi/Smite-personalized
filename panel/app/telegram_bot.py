@@ -571,35 +571,69 @@ Use buttons in messages to interact with nodes and tunnels."""
     
     async def remove_node_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Start removing a node"""
-        query = update.callback_query
-        await query.answer()
-        
-        if not self.is_admin(query.from_user.id):
-            await query.edit_message_text(self.t(query.from_user.id, "access_denied"))
-            return ConversationHandler.END
-        
-        role = "iran" if "iran" in query.data else "foreign"
-        
-        async with AsyncSessionLocal() as session:
-            result = await session.execute(select(Node))
-            nodes = result.scalars().all()
-            nodes = [n for n in nodes if n.node_metadata.get("role") == role]
+        try:
+            # Handle both callback query and text message
+            if hasattr(update, 'callback_query') and update.callback_query:
+                query = update.callback_query
+                await query.answer()
+                user_id = query.from_user.id
+                role = "iran" if "iran" in query.data else "foreign"
+                message = query.message
+            else:
+                # Text message from keyboard
+                text = update.message.text
+                user_id = update.effective_user.id
+                if "ایران" in text or "iran" in text.lower():
+                    role = "iran"
+                else:
+                    role = "foreign"
+                message = update.message
             
-            if not nodes:
-                await query.edit_message_text(self.t(query.from_user.id, "no_nodes"))
+            if not self.is_admin(user_id):
+                reply_markup = self._get_keyboard(user_id)
+                if hasattr(message, 'edit_message_text'):
+                    await message.edit_message_text(self.t(user_id, "access_denied"), reply_markup=reply_markup)
+                else:
+                    await message.reply_text(self.t(user_id, "access_denied"), reply_markup=reply_markup)
                 return ConversationHandler.END
             
-            keyboard = []
-            for node in nodes:
-                keyboard.append([InlineKeyboardButton(
-                    f"🗑️ {node.name}",
-                    callback_data=f"rm_node_{node.id}"
-                )])
-            keyboard.append([InlineKeyboardButton(self.t(query.from_user.id, "cancel"), callback_data="cancel")])
-            
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.edit_message_text(self.t(query.from_user.id, "select_node_to_remove"), reply_markup=reply_markup)
-            return WAITING_FOR_NODE_NAME
+            async with AsyncSessionLocal() as session:
+                result = await session.execute(select(Node))
+                nodes = result.scalars().all()
+                nodes = [n for n in nodes if n.node_metadata.get("role") == role]
+                
+                if not nodes:
+                    reply_markup = self._get_keyboard(user_id)
+                    if hasattr(message, 'edit_message_text'):
+                        await message.edit_message_text(self.t(user_id, "no_nodes"), reply_markup=reply_markup)
+                    else:
+                        await message.reply_text(self.t(user_id, "no_nodes"), reply_markup=reply_markup)
+                    return ConversationHandler.END
+                
+                keyboard = []
+                for node in nodes:
+                    keyboard.append([InlineKeyboardButton(
+                        f"🗑️ {node.name}",
+                        callback_data=f"rm_node_{node.id}"
+                    )])
+                keyboard.append([InlineKeyboardButton(self.t(user_id, "cancel"), callback_data="cancel")])
+                
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                if hasattr(message, 'edit_message_text'):
+                    await message.edit_message_text(self.t(user_id, "select_node_to_remove"), reply_markup=reply_markup)
+                else:
+                    await message.reply_text(self.t(user_id, "select_node_to_remove"), reply_markup=reply_markup)
+                return WAITING_FOR_NODE_NAME
+        except Exception as e:
+            logger.error(f"Error in remove_node_start: {e}", exc_info=True)
+            try:
+                user_id = update.effective_user.id if hasattr(update, 'effective_user') else update.from_user.id if hasattr(update, 'from_user') else 0
+                reply_markup = self._get_keyboard(user_id)
+                if hasattr(update, 'message') and update.message:
+                    await update.message.reply_text("❌ Error processing request", reply_markup=reply_markup)
+            except:
+                pass
+            return ConversationHandler.END
     
     async def remove_node_confirm(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Confirm and remove node"""
@@ -611,17 +645,16 @@ Use buttons in messages to interact with nodes and tunnels."""
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.delete(f"http://localhost:8000/api/nodes/{node_id}")
+                reply_markup = self._get_keyboard(query.from_user.id)
                 if response.status_code == 200:
-                    await query.edit_message_text(self.t(query.from_user.id, "node_removed"))
-                    await self.show_main_menu(query.message)
+                    await query.edit_message_text(self.t(query.from_user.id, "node_removed"), reply_markup=reply_markup)
                 else:
                     error_msg = response.text[:200] if response.text else "Unknown error"
-                    await query.edit_message_text(self.t(query.from_user.id, "error", error=error_msg))
-                    await self.show_main_menu(query.message)
+                    await query.edit_message_text(self.t(query.from_user.id, "error", error=error_msg), reply_markup=reply_markup)
         except Exception as e:
             logger.error(f"Error removing node: {e}", exc_info=True)
-            await query.edit_message_text(self.t(query.from_user.id, "error", error=str(e)[:200]))
-            await self.show_main_menu(query.message)
+            reply_markup = self._get_keyboard(query.from_user.id)
+            await query.edit_message_text(self.t(query.from_user.id, "error", error=str(e)[:200]), reply_markup=reply_markup)
         
         return ConversationHandler.END
     
@@ -757,9 +790,9 @@ Use buttons in messages to interact with nodes and tunnels."""
                 iran_nodes = [n for n in nodes if n.node_metadata.get("role") == "iran"]
                 
                 if not iran_nodes:
-                    await update.message.reply_text("No Iran nodes found. Please add an Iran node first.")
+                    reply_markup = self._get_keyboard(user_id)
+                    await update.message.reply_text("No Iran nodes found. Please add an Iran node first.", reply_markup=reply_markup)
                     del self.user_states[user_id]
-                    await self.show_main_menu(update.message)
                     return ConversationHandler.END
                 
                 keyboard = []
@@ -782,9 +815,9 @@ Use buttons in messages to interact with nodes and tunnels."""
                 iran_nodes = [n for n in nodes if n.node_metadata.get("role") == "iran"]
                 
                 if not iran_nodes:
-                    await update.message.reply_text("No Iran nodes found. Please add an Iran node first.")
+                    reply_markup = self._get_keyboard(user_id)
+                    await update.message.reply_text("No Iran nodes found. Please add an Iran node first.", reply_markup=reply_markup)
                     del self.user_states[user_id]
-                    await self.show_main_menu(update.message)
                     return ConversationHandler.END
                 
                 keyboard = []
@@ -825,9 +858,9 @@ Use buttons in messages to interact with nodes and tunnels."""
             iran_nodes = [n for n in nodes if n.node_metadata.get("role") == "iran"]
             
             if not iran_nodes:
-                await update.message.reply_text("No Iran nodes found. Please add an Iran node first.")
+                reply_markup = self._get_keyboard(user_id)
+                await update.message.reply_text("No Iran nodes found. Please add an Iran node first.", reply_markup=reply_markup)
                 del self.user_states[user_id]
-                await self.show_main_menu(update.message)
                 return ConversationHandler.END
             
             keyboard = []
@@ -862,9 +895,9 @@ Use buttons in messages to interact with nodes and tunnels."""
             foreign_nodes = [n for n in nodes if n.node_metadata.get("role") == "foreign"]
             
             if not foreign_nodes:
-                await query.edit_message_text("No foreign nodes found. Please add a foreign node first.")
+                reply_markup = self._get_keyboard(user_id)
+                await query.edit_message_text("No foreign nodes found. Please add a foreign node first.", reply_markup=reply_markup)
                 del self.user_states[user_id]
-                await self.show_main_menu(query.message)
                 return ConversationHandler.END
             
             keyboard = []
@@ -912,17 +945,16 @@ Use buttons in messages to interact with nodes and tunnels."""
                         "spec": spec
                     }
                 )
+                reply_markup = self._get_keyboard(user_id)
                 if response.status_code == 200:
-                    await query.edit_message_text(self.t(user_id, "tunnel_created"))
-                    await self.show_main_menu(query.message)
+                    await query.edit_message_text(self.t(user_id, "tunnel_created"), reply_markup=reply_markup)
                 else:
                     error_msg = response.text[:200] if response.text else "Unknown error"
-                    await query.edit_message_text(self.t(user_id, "error", error=error_msg))
-                    await self.show_main_menu(query.message)
+                    await query.edit_message_text(self.t(user_id, "error", error=error_msg), reply_markup=reply_markup)
         except Exception as e:
             logger.error(f"Error creating tunnel: {e}", exc_info=True)
-            await query.edit_message_text(self.t(user_id, "error", error=str(e)[:200]))
-            await self.show_main_menu(query.message)
+            reply_markup = self._get_keyboard(user_id)
+            await query.edit_message_text(self.t(user_id, "error", error=str(e)[:200]), reply_markup=reply_markup)
         
         del self.user_states[user_id]
         return ConversationHandler.END
@@ -953,48 +985,77 @@ Use buttons in messages to interact with nodes and tunnels."""
                     }
                 )
                 if response.status_code == 200:
-                    await update.message.reply_text(self.t(user_id, "tunnel_created"))
-                    await self.show_main_menu(update.message)
+                    reply_markup = self._get_keyboard(user_id)
+                    await update.message.reply_text(self.t(user_id, "tunnel_created"), reply_markup=reply_markup)
                 else:
                     error_msg = response.text[:200] if response.text else "Unknown error"
-                    await update.message.reply_text(self.t(user_id, "error", error=error_msg))
-                    await self.show_main_menu(update.message)
+                    reply_markup = self._get_keyboard(user_id)
+                    await update.message.reply_text(self.t(user_id, "error", error=error_msg), reply_markup=reply_markup)
         except Exception as e:
             logger.error(f"Error creating tunnel: {e}", exc_info=True)
-            await update.message.reply_text(self.t(user_id, "error", error=str(e)[:200]))
-            await self.show_main_menu(update.message)
+            reply_markup = self._get_keyboard(user_id)
+            await update.message.reply_text(self.t(user_id, "error", error=str(e)[:200]), reply_markup=reply_markup)
         
         del self.user_states[user_id]
         return ConversationHandler.END
     
     async def remove_tunnel_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Start removing a tunnel"""
-        query = update.callback_query
-        await query.answer()
-        
-        if not self.is_admin(query.from_user.id):
-            await query.edit_message_text(self.t(query.from_user.id, "access_denied"))
-            return ConversationHandler.END
-        
-        async with AsyncSessionLocal() as session:
-            result = await session.execute(select(Tunnel))
-            tunnels = result.scalars().all()
+        try:
+            # Handle both callback query and text message
+            if hasattr(update, 'callback_query') and update.callback_query:
+                query = update.callback_query
+                await query.answer()
+                user_id = query.from_user.id
+                message = query.message
+            else:
+                user_id = update.effective_user.id
+                message = update.message
             
-            if not tunnels:
-                await query.edit_message_text(self.t(query.from_user.id, "no_tunnels"))
+            if not self.is_admin(user_id):
+                reply_markup = self._get_keyboard(user_id)
+                if hasattr(message, 'edit_message_text'):
+                    await message.edit_message_text(self.t(user_id, "access_denied"), reply_markup=reply_markup)
+                else:
+                    await message.reply_text(self.t(user_id, "access_denied"), reply_markup=reply_markup)
                 return ConversationHandler.END
             
-            keyboard = []
-            for tunnel in tunnels:
-                keyboard.append([InlineKeyboardButton(
-                    f"🗑️ {tunnel.name} ({tunnel.core})",
-                    callback_data=f"rm_tunnel_{tunnel.id}"
-                )])
-            keyboard.append([InlineKeyboardButton(self.t(query.from_user.id, "cancel"), callback_data="cancel")])
-            
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.edit_message_text(self.t(query.from_user.id, "select_tunnel_to_remove"), reply_markup=reply_markup)
-            return WAITING_FOR_TUNNEL_NAME
+            async with AsyncSessionLocal() as session:
+                result = await session.execute(select(Tunnel))
+                tunnels = result.scalars().all()
+                
+                if not tunnels:
+                    reply_markup = self._get_keyboard(user_id)
+                    if hasattr(message, 'edit_message_text'):
+                        await message.edit_message_text(self.t(user_id, "no_tunnels"), reply_markup=reply_markup)
+                    else:
+                        await message.reply_text(self.t(user_id, "no_tunnels"), reply_markup=reply_markup)
+                    return ConversationHandler.END
+                
+                keyboard = []
+                for tunnel in tunnels:
+                    keyboard.append([InlineKeyboardButton(
+                        f"🗑️ {tunnel.name} ({tunnel.core})",
+                        callback_data=f"rm_tunnel_{tunnel.id}"
+                    )])
+                keyboard.append([InlineKeyboardButton(self.t(user_id, "cancel"), callback_data="cancel")])
+                
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                if hasattr(message, 'edit_message_text'):
+                    await message.edit_message_text(self.t(user_id, "select_tunnel_to_remove"), reply_markup=reply_markup)
+                else:
+                    await message.reply_text(self.t(user_id, "select_tunnel_to_remove"), reply_markup=reply_markup)
+                return WAITING_FOR_TUNNEL_NAME
+        except Exception as e:
+            logger.error(f"Error in remove_tunnel_start: {e}", exc_info=True)
+            try:
+                user_id = update.effective_user.id if hasattr(update, 'effective_user') else update.from_user.id if hasattr(update, 'from_user') else 0
+                reply_markup = self._get_keyboard(user_id)
+                if hasattr(update, 'message') and update.message:
+                    await update.message.reply_text("❌ Error processing request", reply_markup=reply_markup)
+            except:
+                pass
+            return ConversationHandler.END
     
     async def remove_tunnel_confirm(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Confirm and remove tunnel"""
@@ -1006,17 +1067,16 @@ Use buttons in messages to interact with nodes and tunnels."""
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.delete(f"http://localhost:8000/api/tunnels/{tunnel_id}")
+                reply_markup = self._get_keyboard(query.from_user.id)
                 if response.status_code == 200:
-                    await query.edit_message_text(self.t(query.from_user.id, "tunnel_removed"))
-                    await self.show_main_menu(query.message)
+                    await query.edit_message_text(self.t(query.from_user.id, "tunnel_removed"), reply_markup=reply_markup)
                 else:
                     error_msg = response.text[:200] if response.text else "Unknown error"
-                    await query.edit_message_text(self.t(query.from_user.id, "error", error=error_msg))
-                    await self.show_main_menu(query.message)
+                    await query.edit_message_text(self.t(query.from_user.id, "error", error=error_msg), reply_markup=reply_markup)
         except Exception as e:
             logger.error(f"Error removing tunnel: {e}", exc_info=True)
-            await query.edit_message_text(self.t(query.from_user.id, "error", error=str(e)[:200]))
-            await self.show_main_menu(query.message)
+            reply_markup = self._get_keyboard(query.from_user.id)
+            await query.edit_message_text(self.t(query.from_user.id, "error", error=str(e)[:200]), reply_markup=reply_markup)
         
         return ConversationHandler.END
     
@@ -1029,8 +1089,8 @@ Use buttons in messages to interact with nodes and tunnels."""
         if user_id in self.user_states:
             del self.user_states[user_id]
         
-        await query.edit_message_text(self.t(user_id, "cancel"))
-        await self.show_main_menu(query.message)
+        reply_markup = self._get_keyboard(user_id)
+        await query.edit_message_text(self.t(user_id, "cancel"), reply_markup=reply_markup)
         return ConversationHandler.END
     
     async def cmd_nodes(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1258,13 +1318,16 @@ Use buttons in messages to interact with nodes and tunnels."""
             elif "📦" in text and self.t(user_id, "backup") in text:
                 await self.cmd_backup(update, context)
             elif "🌐" in text and self.t(user_id, "language") in text:
-                # Show language selection
+                # Show language selection with persistent keyboard
                 keyboard = [
                     [InlineKeyboardButton(self.t(user_id, "english"), callback_data="lang_en")],
                     [InlineKeyboardButton(self.t(user_id, "farsi"), callback_data="lang_fa")],
                 ]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                await update.message.reply_text("🌐 Select Language:", reply_markup=reply_markup)
+                inline_markup = InlineKeyboardMarkup(keyboard)
+                persistent_keyboard = self._get_keyboard(user_id)
+                await update.message.reply_text("🌐 Select Language:", reply_markup=inline_markup)
+                await asyncio.sleep(0.1)
+                await update.message.reply_text("⬇️", reply_markup=persistent_keyboard)
         except Exception as e:
             logger.error(f"Error handling text message: {e}", exc_info=True)
             try:
@@ -1302,11 +1365,12 @@ Use buttons in messages to interact with nodes and tunnels."""
             self.user_languages[str(query.from_user.id)] = lang
             self._save_languages()
             lang_name = "English" if lang == "en" else "Farsi"
-            await query.edit_message_text(self.t(query.from_user.id, "language_set", lang=lang_name))
-            await asyncio.sleep(1)
-            await self.show_main_menu(query.message)
+            reply_markup = self._get_keyboard(query.from_user.id)
+            await query.edit_message_text(self.t(query.from_user.id, "language_set", lang=lang_name), reply_markup=reply_markup)
         elif data == "back_to_menu":
-            await self.show_main_menu(query.message)
+            reply_markup = self._get_keyboard(query.from_user.id)
+            text = self.t(query.from_user.id, "welcome")
+            await query.edit_message_text(text, reply_markup=reply_markup)
         elif data == "node_stats":
             await self.cmd_nodes_callback(query)
         elif data == "tunnel_stats":
@@ -1369,9 +1433,13 @@ Use buttons in messages to interact with nodes and tunnels."""
             logger.error(f"Error in cmd_nodes_callback: {e}", exc_info=True)
             try:
                 user_id = message_or_query.from_user.id if hasattr(message_or_query, 'from_user') else 0
+                reply_markup = self._get_keyboard(user_id)
                 if hasattr(message_or_query, 'reply_text'):
-                    await message_or_query.reply_text("❌ Error loading nodes")
-                await self.show_main_menu(message_or_query.message if hasattr(message_or_query, 'message') else message_or_query)
+                    await message_or_query.reply_text("❌ Error loading nodes", reply_markup=reply_markup)
+                elif hasattr(message_or_query, 'edit_message_text'):
+                    await message_or_query.edit_message_text("❌ Error loading nodes", reply_markup=reply_markup)
+                elif hasattr(message_or_query, 'message'):
+                    await message_or_query.message.reply_text("❌ Error loading nodes", reply_markup=reply_markup)
             except:
                 pass
     
