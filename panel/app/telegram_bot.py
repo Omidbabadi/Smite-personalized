@@ -11,16 +11,26 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.database import AsyncSessionLocal
 from app.models import Node, Tunnel, Settings
+import httpx
 
 logger = logging.getLogger(__name__)
 
 try:
-    from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-    from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+    from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
+    from telegram.ext import (
+        Application, CommandHandler, CallbackQueryHandler, ContextTypes,
+        ConversationHandler, MessageHandler, filters
+    )
     TELEGRAM_AVAILABLE = True
 except ImportError:
     TELEGRAM_AVAILABLE = False
     logger.warning("python-telegram-bot not installed. Telegram bot will not work.")
+
+
+# Conversation states
+(WAITING_FOR_NODE_NAME, WAITING_FOR_NODE_IP, WAITING_FOR_NODE_PORT, WAITING_FOR_NODE_ROLE,
+ WAITING_FOR_TUNNEL_NAME, WAITING_FOR_TUNNEL_CORE, WAITING_FOR_TUNNEL_TYPE, WAITING_FOR_TUNNEL_PORTS,
+ WAITING_FOR_TUNNEL_IRAN_NODE, WAITING_FOR_TUNNEL_FOREIGN_NODE, WAITING_FOR_TUNNEL_REMOTE_IP) = range(12)
 
 
 class TelegramBot:
@@ -35,6 +45,8 @@ class TelegramBot:
         self.backup_enabled = False
         self.backup_interval = 60
         self.backup_interval_unit = "minutes"
+        self.user_languages: Dict[int, str] = {}  # user_id -> language (en/fa)
+        self.user_states: Dict[int, Dict] = {}  # user_id -> state data
     
     async def load_settings(self):
         """Load settings from database"""
@@ -55,6 +67,96 @@ class TelegramBot:
                 self.backup_enabled = False
                 self.backup_interval = 60
                 self.backup_interval_unit = "minutes"
+    
+    def get_lang(self, user_id: int) -> str:
+        """Get user language"""
+        return self.user_languages.get(user_id, "en")
+    
+    def t(self, user_id: int, key: str, **kwargs) -> str:
+        """Translate text"""
+        lang = self.get_lang(user_id)
+        translations = {
+            "en": {
+                "welcome": "👋 Welcome to Smite Panel Bot!\n\nSelect an action:",
+                "access_denied": "❌ Access denied. You are not an admin.",
+                "add_iran_node": "➕ Add Iran Node",
+                "add_foreign_node": "➕ Add Foreign Node",
+                "remove_iran_node": "➖ Remove Iran Node",
+                "remove_foreign_node": "➖ Remove Foreign Node",
+                "create_tunnel": "🔗 Create Tunnel",
+                "remove_tunnel": "🗑️ Remove Tunnel",
+                "node_stats": "📊 Node Stats",
+                "tunnel_stats": "📊 Tunnel Stats",
+                "logs": "📋 Logs",
+                "backup": "📦 Backup",
+                "language": "🌐 Language",
+                "enter_node_name": "Enter node name:",
+                "enter_node_ip": "Enter node IP address:",
+                "enter_node_port": "Enter node API port (default: 8888):",
+                "node_added": "✅ Node added successfully!",
+                "node_removed": "✅ Node removed successfully!",
+                "select_node_to_remove": "Select node to remove:",
+                "enter_tunnel_name": "Enter tunnel name:",
+                "select_tunnel_core": "Select tunnel core:",
+                "select_tunnel_type": "Select tunnel type:",
+                "enter_tunnel_ports": "Enter tunnel ports (comma-separated, e.g., 8080,8081,8082):",
+                "select_iran_node": "Select Iran node:",
+                "select_foreign_node": "Select foreign node:",
+                "enter_remote_ip": "Enter remote IP (default: 127.0.0.1):",
+                "tunnel_created": "✅ Tunnel created successfully!",
+                "select_tunnel_to_remove": "Select tunnel to remove:",
+                "tunnel_removed": "✅ Tunnel removed successfully!",
+                "cancel": "❌ Cancelled",
+                "back": "🔙 Back",
+                "english": "🇬🇧 English",
+                "farsi": "🇮🇷 Farsi",
+                "language_set": "✅ Language set to {lang}",
+                "no_nodes": "📭 No nodes found.",
+                "no_tunnels": "📭 No tunnels found.",
+                "error": "❌ Error: {error}",
+            },
+            "fa": {
+                "welcome": "👋 به ربات پنل اسمیت خوش آمدید!\n\nیک عمل را انتخاب کنید:",
+                "access_denied": "❌ دسترسی رد شد. شما ادمین نیستید.",
+                "add_iran_node": "➕ افزودن نود ایران",
+                "add_foreign_node": "➕ افزودن نود خارجی",
+                "remove_iran_node": "➖ حذف نود ایران",
+                "remove_foreign_node": "➖ حذف نود خارجی",
+                "create_tunnel": "🔗 ایجاد تونل",
+                "remove_tunnel": "🗑️ حذف تونل",
+                "node_stats": "📊 آمار نودها",
+                "tunnel_stats": "📊 آمار تونل‌ها",
+                "logs": "📋 لاگ‌ها",
+                "backup": "📦 پشتیبان",
+                "language": "🌐 زبان",
+                "enter_node_name": "نام نود را وارد کنید:",
+                "enter_node_ip": "آدرس IP نود را وارد کنید:",
+                "enter_node_port": "پورت API نود را وارد کنید (پیش‌فرض: 8888):",
+                "node_added": "✅ نود با موفقیت افزوده شد!",
+                "node_removed": "✅ نود با موفقیت حذف شد!",
+                "select_node_to_remove": "نود را برای حذف انتخاب کنید:",
+                "enter_tunnel_name": "نام تونل را وارد کنید:",
+                "select_tunnel_core": "هسته تونل را انتخاب کنید:",
+                "select_tunnel_type": "نوع تونل را انتخاب کنید:",
+                "enter_tunnel_ports": "پورت‌های تونل را وارد کنید (جدا شده با کاما، مثال: 8080,8081,8082):",
+                "select_iran_node": "نود ایران را انتخاب کنید:",
+                "select_foreign_node": "نود خارجی را انتخاب کنید:",
+                "enter_remote_ip": "IP از راه دور را وارد کنید (پیش‌فرض: 127.0.0.1):",
+                "tunnel_created": "✅ تونل با موفقیت ایجاد شد!",
+                "select_tunnel_to_remove": "تونل را برای حذف انتخاب کنید:",
+                "tunnel_removed": "✅ تونل با موفقیت حذف شد!",
+                "cancel": "❌ لغو شد",
+                "back": "🔙 بازگشت",
+                "english": "🇬🇧 انگلیسی",
+                "farsi": "🇮🇷 فارسی",
+                "language_set": "✅ زبان به {lang} تنظیم شد",
+                "no_nodes": "📭 نودی یافت نشد.",
+                "no_tunnels": "📭 تونلی یافت نشد.",
+                "error": "❌ خطا: {error}",
+            }
+        }
+        text = translations.get(lang, translations["en"]).get(key, key)
+        return text.format(**kwargs) if kwargs else text
     
     def is_admin(self, user_id: int) -> bool:
         """Check if user is admin"""
@@ -78,12 +180,61 @@ class TelegramBot:
         try:
             self.application = Application.builder().token(self.bot_token).build()
             
+            # Conversation handler for adding nodes
+            add_node_conv = ConversationHandler(
+                entry_points=[CallbackQueryHandler(self.add_node_start, pattern="^add_node_")],
+                states={
+                    WAITING_FOR_NODE_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.add_node_name)],
+                    WAITING_FOR_NODE_IP: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.add_node_ip)],
+                    WAITING_FOR_NODE_PORT: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.add_node_port)],
+                },
+                fallbacks=[CallbackQueryHandler(self.cancel_operation, pattern="^cancel$")],
+            )
+            
+            # Conversation handler for removing nodes
+            remove_node_conv = ConversationHandler(
+                entry_points=[CallbackQueryHandler(self.remove_node_start, pattern="^remove_node_")],
+                states={
+                    WAITING_FOR_NODE_NAME: [CallbackQueryHandler(self.remove_node_confirm, pattern="^rm_node_")],
+                },
+                fallbacks=[CallbackQueryHandler(self.cancel_operation, pattern="^cancel$")],
+            )
+            
+            # Conversation handler for creating tunnels
+            create_tunnel_conv = ConversationHandler(
+                entry_points=[CallbackQueryHandler(self.create_tunnel_start, pattern="^create_tunnel$")],
+                states={
+                    WAITING_FOR_TUNNEL_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.create_tunnel_name)],
+                    WAITING_FOR_TUNNEL_CORE: [CallbackQueryHandler(self.create_tunnel_core, pattern="^core_")],
+                    WAITING_FOR_TUNNEL_TYPE: [CallbackQueryHandler(self.create_tunnel_type, pattern="^type_")],
+                    WAITING_FOR_TUNNEL_PORTS: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.create_tunnel_ports)],
+                    WAITING_FOR_TUNNEL_IRAN_NODE: [CallbackQueryHandler(self.create_tunnel_iran_node, pattern="^iran_node_")],
+                    WAITING_FOR_TUNNEL_FOREIGN_NODE: [CallbackQueryHandler(self.create_tunnel_foreign_node, pattern="^foreign_node_")],
+                    WAITING_FOR_TUNNEL_REMOTE_IP: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.create_tunnel_remote_ip)],
+                },
+                fallbacks=[CallbackQueryHandler(self.cancel_operation, pattern="^cancel$")],
+            )
+            
+            # Conversation handler for removing tunnels
+            remove_tunnel_conv = ConversationHandler(
+                entry_points=[CallbackQueryHandler(self.remove_tunnel_start, pattern="^remove_tunnel$")],
+                states={
+                    WAITING_FOR_TUNNEL_NAME: [CallbackQueryHandler(self.remove_tunnel_confirm, pattern="^rm_tunnel_")],
+                },
+                fallbacks=[CallbackQueryHandler(self.cancel_operation, pattern="^cancel$")],
+            )
+            
             self.application.add_handler(CommandHandler("start", self.cmd_start))
             self.application.add_handler(CommandHandler("help", self.cmd_help))
             self.application.add_handler(CommandHandler("nodes", self.cmd_nodes))
             self.application.add_handler(CommandHandler("tunnels", self.cmd_tunnels))
             self.application.add_handler(CommandHandler("status", self.cmd_status))
             self.application.add_handler(CommandHandler("backup", self.cmd_backup))
+            self.application.add_handler(CommandHandler("logs", self.cmd_logs))
+            self.application.add_handler(add_node_conv)
+            self.application.add_handler(remove_node_conv)
+            self.application.add_handler(create_tunnel_conv)
+            self.application.add_handler(remove_tunnel_conv)
             self.application.add_handler(CallbackQueryHandler(self.handle_callback))
             
             await self.application.initialize()
@@ -188,138 +339,540 @@ class TelegramBot:
     async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command"""
         if not self.is_admin(update.effective_user.id):
-            await update.message.reply_text("❌ Access denied. You are not an admin.")
+            await update.message.reply_text(self.t(update.effective_user.id, "access_denied"))
             return
         
-        await update.message.reply_text(
-            "👋 Welcome to Smite Panel Bot!\n\n"
-            "Use /help to see available commands."
-        )
+        await self.show_main_menu(update.message)
+    
+    async def show_main_menu(self, message):
+        """Show main menu with buttons"""
+        user_id = message.from_user.id
+        keyboard = [
+            [
+                InlineKeyboardButton(self.t(user_id, "add_iran_node"), callback_data="add_node_iran"),
+                InlineKeyboardButton(self.t(user_id, "add_foreign_node"), callback_data="add_node_foreign"),
+            ],
+            [
+                InlineKeyboardButton(self.t(user_id, "remove_iran_node"), callback_data="remove_node_iran"),
+                InlineKeyboardButton(self.t(user_id, "remove_foreign_node"), callback_data="remove_node_foreign"),
+            ],
+            [
+                InlineKeyboardButton(self.t(user_id, "create_tunnel"), callback_data="create_tunnel"),
+                InlineKeyboardButton(self.t(user_id, "remove_tunnel"), callback_data="remove_tunnel"),
+            ],
+            [
+                InlineKeyboardButton(self.t(user_id, "node_stats"), callback_data="node_stats"),
+                InlineKeyboardButton(self.t(user_id, "tunnel_stats"), callback_data="tunnel_stats"),
+            ],
+            [
+                InlineKeyboardButton(self.t(user_id, "logs"), callback_data="logs"),
+                InlineKeyboardButton(self.t(user_id, "backup"), callback_data="cmd_backup"),
+            ],
+            [
+                InlineKeyboardButton(self.t(user_id, "language"), callback_data="select_language"),
+            ],
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await message.reply_text(self.t(user_id, "welcome"), reply_markup=reply_markup)
     
     async def cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /help command"""
         if not self.is_admin(update.effective_user.id):
-            await update.message.reply_text("❌ Access denied. You are not an admin.")
+            await update.message.reply_text(self.t(update.effective_user.id, "access_denied"))
             return
         
         help_text = """📋 Available Commands:
 
+/start - Show main menu
 /nodes - List all nodes
 /tunnels - List all tunnels
 /status - Show panel status
+/logs - Show recent logs
 /backup - Create and send backup
 
 Use buttons in messages to interact with nodes and tunnels."""
         
         await update.message.reply_text(help_text)
     
-    async def cmd_nodes(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /nodes command"""
-        if not self.is_admin(update.effective_user.id):
-            await update.message.reply_text("❌ Access denied. You are not an admin.")
-            return
+    # Node management
+    async def add_node_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Start adding a node"""
+        query = update.callback_query
+        await query.answer()
+        
+        if not self.is_admin(query.from_user.id):
+            await query.edit_message_text(self.t(query.from_user.id, "access_denied"))
+            return ConversationHandler.END
+        
+        role = "iran" if "iran" in query.data else "foreign"
+        self.user_states[query.from_user.id] = {"role": role, "step": "name"}
+        
+        cancel_btn = InlineKeyboardButton(self.t(query.from_user.id, "cancel"), callback_data="cancel")
+        reply_markup = InlineKeyboardMarkup([[cancel_btn]])
+        await query.edit_message_text(self.t(query.from_user.id, "enter_node_name"), reply_markup=reply_markup)
+        return WAITING_FOR_NODE_NAME
+    
+    async def add_node_name(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle node name input"""
+        user_id = update.message.from_user.id
+        if user_id not in self.user_states:
+            return ConversationHandler.END
+        
+        self.user_states[user_id]["name"] = update.message.text
+        self.user_states[user_id]["step"] = "ip"
+        
+        cancel_btn = InlineKeyboardButton(self.t(user_id, "cancel"), callback_data="cancel")
+        reply_markup = InlineKeyboardMarkup([[cancel_btn]])
+        await update.message.reply_text(self.t(user_id, "enter_node_ip"), reply_markup=reply_markup)
+        return WAITING_FOR_NODE_IP
+    
+    async def add_node_ip(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle node IP input"""
+        user_id = update.message.from_user.id
+        if user_id not in self.user_states:
+            return ConversationHandler.END
+        
+        self.user_states[user_id]["ip"] = update.message.text
+        self.user_states[user_id]["step"] = "port"
+        
+        cancel_btn = InlineKeyboardButton(self.t(user_id, "cancel"), callback_data="cancel")
+        reply_markup = InlineKeyboardMarkup([[cancel_btn]])
+        await update.message.reply_text(self.t(user_id, "enter_node_port"), reply_markup=reply_markup)
+        return WAITING_FOR_NODE_PORT
+    
+    async def add_node_port(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle node port input and create node"""
+        user_id = update.message.from_user.id
+        if user_id not in self.user_states:
+            return ConversationHandler.END
+        
+        try:
+            port = int(update.message.text) if update.message.text.strip() else 8888
+        except ValueError:
+            await update.message.reply_text("Invalid port. Using default 8888.")
+            port = 8888
+        
+        state = self.user_states[user_id]
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    "http://localhost:8000/api/nodes",
+                    json={
+                        "name": state["name"],
+                        "ip_address": state["ip"],
+                        "api_port": port,
+                        "metadata": {"role": state["role"]}
+                    }
+                )
+                if response.status_code == 200:
+                    await update.message.reply_text(self.t(user_id, "node_added"))
+                else:
+                    await update.message.reply_text(self.t(user_id, "error", error=response.text))
+        except Exception as e:
+            logger.error(f"Error adding node: {e}", exc_info=True)
+            await update.message.reply_text(self.t(user_id, "error", error=str(e)))
+        
+        del self.user_states[user_id]
+        return ConversationHandler.END
+    
+    async def remove_node_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Start removing a node"""
+        query = update.callback_query
+        await query.answer()
+        
+        if not self.is_admin(query.from_user.id):
+            await query.edit_message_text(self.t(query.from_user.id, "access_denied"))
+            return ConversationHandler.END
+        
+        role = "iran" if "iran" in query.data else "foreign"
         
         async with AsyncSessionLocal() as session:
             result = await session.execute(select(Node))
             nodes = result.scalars().all()
+            nodes = [n for n in nodes if n.node_metadata.get("role") == role]
             
             if not nodes:
-                await update.message.reply_text("📭 No nodes found.")
-                return
-            
-            text = "🖥️ Nodes:\n\n"
-            for node in nodes:
-                status = "🟢" if node.status == "active" else "🔴"
-                role = node.node_metadata.get("role", "unknown") if node.node_metadata else "unknown"
-                text += f"{status} {node.name} ({role})\n"
-                text += f"   ID: {node.id[:8]}...\n\n"
+                await query.edit_message_text(self.t(query.from_user.id, "no_nodes"))
+                return ConversationHandler.END
             
             keyboard = []
             for node in nodes:
-                keyboard.append([
-                    InlineKeyboardButton(
-                        f"📊 {node.name}",
-                        callback_data=f"node_info_{node.id}"
-                    )
-                ])
+                keyboard.append([InlineKeyboardButton(
+                    f"🗑️ {node.name}",
+                    callback_data=f"rm_node_{node.id}"
+                )])
+            keyboard.append([InlineKeyboardButton(self.t(query.from_user.id, "cancel"), callback_data="cancel")])
             
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text(text, reply_markup=reply_markup)
+            await query.edit_message_text(self.t(query.from_user.id, "select_node_to_remove"), reply_markup=reply_markup)
+            return WAITING_FOR_NODE_NAME
     
-    async def cmd_tunnels(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /tunnels command"""
-        if not self.is_admin(update.effective_user.id):
-            await update.message.reply_text("❌ Access denied. You are not an admin.")
-            return
+    async def remove_node_confirm(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Confirm and remove node"""
+        query = update.callback_query
+        await query.answer()
+        
+        node_id = query.data.replace("rm_node_", "")
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.delete(f"http://localhost:8000/api/nodes/{node_id}")
+                if response.status_code == 200:
+                    await query.edit_message_text(self.t(query.from_user.id, "node_removed"))
+                else:
+                    await query.edit_message_text(self.t(query.from_user.id, "error", error=response.text))
+        except Exception as e:
+            logger.error(f"Error removing node: {e}", exc_info=True)
+            await query.edit_message_text(self.t(query.from_user.id, "error", error=str(e)))
+        
+        return ConversationHandler.END
+    
+    # Tunnel management
+    async def create_tunnel_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Start creating a tunnel"""
+        query = update.callback_query
+        await query.answer()
+        
+        if not self.is_admin(query.from_user.id):
+            await query.edit_message_text(self.t(query.from_user.id, "access_denied"))
+            return ConversationHandler.END
+        
+        self.user_states[query.from_user.id] = {"step": "name"}
+        
+        cancel_btn = InlineKeyboardButton(self.t(query.from_user.id, "cancel"), callback_data="cancel")
+        reply_markup = InlineKeyboardMarkup([[cancel_btn]])
+        await query.edit_message_text(self.t(query.from_user.id, "enter_tunnel_name"), reply_markup=reply_markup)
+        return WAITING_FOR_TUNNEL_NAME
+    
+    async def create_tunnel_name(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle tunnel name input"""
+        user_id = update.message.from_user.id
+        if user_id not in self.user_states:
+            return ConversationHandler.END
+        
+        self.user_states[user_id]["name"] = update.message.text
+        self.user_states[user_id]["step"] = "core"
+        
+        keyboard = [
+            [InlineKeyboardButton("GOST", callback_data="core_gost")],
+            [InlineKeyboardButton("Rathole", callback_data="core_rathole")],
+            [InlineKeyboardButton("Backhaul", callback_data="core_backhaul")],
+            [InlineKeyboardButton("Chisel", callback_data="core_chisel")],
+            [InlineKeyboardButton("FRP", callback_data="core_frp")],
+            [InlineKeyboardButton(self.t(user_id, "cancel"), callback_data="cancel")],
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(self.t(user_id, "select_tunnel_core"), reply_markup=reply_markup)
+        return WAITING_FOR_TUNNEL_CORE
+    
+    async def create_tunnel_core(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle tunnel core selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        user_id = query.from_user.id
+        if user_id not in self.user_states:
+            return ConversationHandler.END
+        
+        core = query.data.replace("core_", "")
+        self.user_states[user_id]["core"] = core
+        self.user_states[user_id]["step"] = "type"
+        
+        # Determine available types based on core
+        types = []
+        if core == "gost":
+            types = [("TCP", "tcp"), ("UDP", "udp"), ("gRPC", "grpc"), ("TCPMux", "tcpmux")]
+        elif core == "rathole":
+            types = [("TCP", "tcp"), ("WebSocket", "ws")]
+        elif core == "backhaul":
+            types = [("TCP", "tcp"), ("UDP", "udp"), ("WebSocket", "ws"), ("WSMux", "wsmux"), ("TCPMux", "tcpmux")]
+        elif core == "frp":
+            types = [("TCP", "tcp"), ("UDP", "udp")]
+        elif core == "chisel":
+            types = [("Chisel", "chisel")]
+        
+        keyboard = []
+        for type_name, type_val in types:
+            keyboard.append([InlineKeyboardButton(type_name, callback_data=f"type_{type_val}")])
+        keyboard.append([InlineKeyboardButton(self.t(user_id, "cancel"), callback_data="cancel")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(self.t(user_id, "select_tunnel_type"), reply_markup=reply_markup)
+        return WAITING_FOR_TUNNEL_TYPE
+    
+    async def create_tunnel_type(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle tunnel type selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        user_id = query.from_user.id
+        if user_id not in self.user_states:
+            return ConversationHandler.END
+        
+        tunnel_type = query.data.replace("type_", "")
+        self.user_states[user_id]["type"] = tunnel_type
+        self.user_states[user_id]["step"] = "ports"
+        
+        cancel_btn = InlineKeyboardButton(self.t(user_id, "cancel"), callback_data="cancel")
+        reply_markup = InlineKeyboardMarkup([[cancel_btn]])
+        await query.edit_message_text(self.t(user_id, "enter_tunnel_ports"), reply_markup=reply_markup)
+        return WAITING_FOR_TUNNEL_PORTS
+    
+    async def create_tunnel_ports(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle tunnel ports input"""
+        user_id = update.message.from_user.id
+        if user_id not in self.user_states:
+            return ConversationHandler.END
+        
+        ports_str = update.message.text
+        ports = [int(p.strip()) for p in ports_str.split(",") if p.strip().isdigit()]
+        
+        if not ports:
+            await update.message.reply_text("Invalid ports. Please enter comma-separated numbers.")
+            return WAITING_FOR_TUNNEL_PORTS
+        
+        self.user_states[user_id]["ports"] = ports
+        core = self.user_states[user_id]["core"]
+        
+        # For cores that need nodes, ask for nodes
+        if core in ["rathole", "backhaul", "frp", "chisel"]:
+            self.user_states[user_id]["step"] = "iran_node"
+            # Get Iran nodes
+            async with AsyncSessionLocal() as session:
+                result = await session.execute(select(Node))
+                nodes = result.scalars().all()
+                iran_nodes = [n for n in nodes if n.node_metadata.get("role") == "iran"]
+                
+                if not iran_nodes:
+                    await update.message.reply_text("No Iran nodes found. Please add an Iran node first.")
+                    del self.user_states[user_id]
+                    return ConversationHandler.END
+                
+                keyboard = []
+                for node in iran_nodes:
+                    keyboard.append([InlineKeyboardButton(
+                        f"🇮🇷 {node.name}",
+                        callback_data=f"iran_node_{node.id}"
+                    )])
+                keyboard.append([InlineKeyboardButton(self.t(user_id, "cancel"), callback_data="cancel")])
+                
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await update.message.reply_text(self.t(user_id, "select_iran_node"), reply_markup=reply_markup)
+                return WAITING_FOR_TUNNEL_IRAN_NODE
+        else:
+            # For GOST, ask for remote IP
+            self.user_states[user_id]["step"] = "remote_ip"
+            cancel_btn = InlineKeyboardButton(self.t(user_id, "cancel"), callback_data="cancel")
+            reply_markup = InlineKeyboardMarkup([[cancel_btn]])
+            await update.message.reply_text(self.t(user_id, "enter_remote_ip"), reply_markup=reply_markup)
+            return WAITING_FOR_TUNNEL_REMOTE_IP
+    
+    async def create_tunnel_iran_node(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle Iran node selection"""
+        query = update.callback_query
+        await query.answer()
+        
+        user_id = query.from_user.id
+        if user_id not in self.user_states:
+            return ConversationHandler.END
+        
+        iran_node_id = query.data.replace("iran_node_", "")
+        self.user_states[user_id]["iran_node_id"] = iran_node_id
+        self.user_states[user_id]["step"] = "foreign_node"
+        
+        # Get foreign nodes
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(select(Node))
+            nodes = result.scalars().all()
+            foreign_nodes = [n for n in nodes if n.node_metadata.get("role") == "foreign"]
+            
+            if not foreign_nodes:
+                await query.edit_message_text("No foreign nodes found. Please add a foreign node first.")
+                del self.user_states[user_id]
+                return ConversationHandler.END
+            
+            keyboard = []
+            for node in foreign_nodes:
+                keyboard.append([InlineKeyboardButton(
+                    f"🌍 {node.name}",
+                    callback_data=f"foreign_node_{node.id}"
+                )])
+            keyboard.append([InlineKeyboardButton(self.t(user_id, "cancel"), callback_data="cancel")])
+            
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(self.t(user_id, "select_foreign_node"), reply_markup=reply_markup)
+            return WAITING_FOR_TUNNEL_FOREIGN_NODE
+    
+    async def create_tunnel_foreign_node(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle foreign node selection and create tunnel"""
+        query = update.callback_query
+        await query.answer()
+        
+        user_id = query.from_user.id
+        if user_id not in self.user_states:
+            return ConversationHandler.END
+        
+        foreign_node_id = query.data.replace("foreign_node_", "")
+        state = self.user_states[user_id]
+        
+        # Build spec based on core
+        spec = {"ports": state["ports"]}
+        
+        if state["core"] == "gost":
+            spec["remote_ip"] = state.get("remote_ip", "127.0.0.1")
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    "http://localhost:8000/api/tunnels",
+                    json={
+                        "name": state["name"],
+                        "core": state["core"],
+                        "type": state["type"],
+                        "iran_node_id": state.get("iran_node_id"),
+                        "foreign_node_id": foreign_node_id,
+                        "spec": spec
+                    }
+                )
+                if response.status_code == 200:
+                    await query.edit_message_text(self.t(user_id, "tunnel_created"))
+                else:
+                    await query.edit_message_text(self.t(user_id, "error", error=response.text))
+        except Exception as e:
+            logger.error(f"Error creating tunnel: {e}", exc_info=True)
+            await query.edit_message_text(self.t(user_id, "error", error=str(e)))
+        
+        del self.user_states[user_id]
+        return ConversationHandler.END
+    
+    async def create_tunnel_remote_ip(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle remote IP input and create GOST tunnel"""
+        user_id = update.message.from_user.id
+        if user_id not in self.user_states:
+            return ConversationHandler.END
+        
+        remote_ip = update.message.text.strip() or "127.0.0.1"
+        state = self.user_states[user_id]
+        
+        spec = {
+            "ports": state["ports"],
+            "remote_ip": remote_ip
+        }
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    "http://localhost:8000/api/tunnels",
+                    json={
+                        "name": state["name"],
+                        "core": state["core"],
+                        "type": state["type"],
+                        "spec": spec
+                    }
+                )
+                if response.status_code == 200:
+                    await update.message.reply_text(self.t(user_id, "tunnel_created"))
+                else:
+                    await update.message.reply_text(self.t(user_id, "error", error=response.text))
+        except Exception as e:
+            logger.error(f"Error creating tunnel: {e}", exc_info=True)
+            await update.message.reply_text(self.t(user_id, "error", error=str(e)))
+        
+        del self.user_states[user_id]
+        return ConversationHandler.END
+    
+    async def remove_tunnel_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Start removing a tunnel"""
+        query = update.callback_query
+        await query.answer()
+        
+        if not self.is_admin(query.from_user.id):
+            await query.edit_message_text(self.t(query.from_user.id, "access_denied"))
+            return ConversationHandler.END
         
         async with AsyncSessionLocal() as session:
             result = await session.execute(select(Tunnel))
             tunnels = result.scalars().all()
             
             if not tunnels:
-                await update.message.reply_text("📭 No tunnels found.")
-                return
-            
-            text = f"🔗 Tunnels ({len(tunnels)}):\n\n"
-            for tunnel in tunnels[:10]:
-                status = "🟢" if tunnel.status == "active" else "🔴"
-                text += f"{status} {tunnel.name} ({tunnel.core})\n"
-            
-            if len(tunnels) > 10:
-                text += f"\n... and {len(tunnels) - 10} more"
+                await query.edit_message_text(self.t(query.from_user.id, "no_tunnels"))
+                return ConversationHandler.END
             
             keyboard = []
-            for tunnel in tunnels[:5]:
-                keyboard.append([
-                    InlineKeyboardButton(
-                        f"🔗 {tunnel.name}",
-                        callback_data=f"tunnel_info_{tunnel.id}"
-                    )
-                ])
+            for tunnel in tunnels:
+                keyboard.append([InlineKeyboardButton(
+                    f"🗑️ {tunnel.name} ({tunnel.core})",
+                    callback_data=f"rm_tunnel_{tunnel.id}"
+                )])
+            keyboard.append([InlineKeyboardButton(self.t(query.from_user.id, "cancel"), callback_data="cancel")])
             
-            reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
-            await update.message.reply_text(text, reply_markup=reply_markup)
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(self.t(query.from_user.id, "select_tunnel_to_remove"), reply_markup=reply_markup)
+            return WAITING_FOR_TUNNEL_NAME
+    
+    async def remove_tunnel_confirm(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Confirm and remove tunnel"""
+        query = update.callback_query
+        await query.answer()
+        
+        tunnel_id = query.data.replace("rm_tunnel_", "")
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.delete(f"http://localhost:8000/api/tunnels/{tunnel_id}")
+                if response.status_code == 200:
+                    await query.edit_message_text(self.t(query.from_user.id, "tunnel_removed"))
+                else:
+                    await query.edit_message_text(self.t(query.from_user.id, "error", error=response.text))
+        except Exception as e:
+            logger.error(f"Error removing tunnel: {e}", exc_info=True)
+            await query.edit_message_text(self.t(query.from_user.id, "error", error=str(e)))
+        
+        return ConversationHandler.END
+    
+    async def cancel_operation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Cancel current operation"""
+        query = update.callback_query
+        await query.answer()
+        
+        user_id = query.from_user.id
+        if user_id in self.user_states:
+            del self.user_states[user_id]
+        
+        await query.edit_message_text(self.t(user_id, "cancel"))
+        await self.show_main_menu(query.message)
+        return ConversationHandler.END
+    
+    # Stats and info
+    async def cmd_nodes(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /nodes command"""
+        if not self.is_admin(update.effective_user.id):
+            await update.message.reply_text(self.t(update.effective_user.id, "access_denied"))
+            return
+        
+        await self.cmd_nodes_callback(update.message)
+    
+    async def cmd_tunnels(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /tunnels command"""
+        if not self.is_admin(update.effective_user.id):
+            await update.message.reply_text(self.t(update.effective_user.id, "access_denied"))
+            return
+        
+        await self.cmd_tunnels_callback(update.message)
     
     async def cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /status command"""
         if not self.is_admin(update.effective_user.id):
-            await update.message.reply_text("❌ Access denied. You are not an admin.")
+            await update.message.reply_text(self.t(update.effective_user.id, "access_denied"))
             return
         
-        async with AsyncSessionLocal() as session:
-            nodes_result = await session.execute(select(Node))
-            nodes = nodes_result.scalars().all()
-            
-            tunnels_result = await session.execute(select(Tunnel))
-            tunnels = tunnels_result.scalars().all()
-            
-            active_nodes = sum(1 for n in nodes if n.status == "active")
-            active_tunnels = sum(1 for t in tunnels if t.status == "active")
-            
-            text = f"""📊 Panel Status:
-
-🖥️ Nodes: {active_nodes}/{len(nodes)} active
-🔗 Tunnels: {active_tunnels}/{len(tunnels)} active
-"""
-            
-            keyboard = [
-                [
-                    InlineKeyboardButton("🖥️ View Nodes", callback_data="cmd_nodes"),
-                    InlineKeyboardButton("🔗 View Tunnels", callback_data="cmd_tunnels")
-                ],
-                [
-                    InlineKeyboardButton("📦 Create Backup", callback_data="cmd_backup"),
-                    InlineKeyboardButton("🔄 Refresh", callback_data="cmd_status")
-                ]
-            ]
-            
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text(text, reply_markup=reply_markup)
+        await self.cmd_status_callback(update.message)
     
     async def cmd_backup(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /backup command"""
         if not self.is_admin(update.effective_user.id):
-            await update.message.reply_text("❌ Access denied. You are not an admin.")
+            await update.message.reply_text(self.t(update.effective_user.id, "access_denied"))
             return
         
         await update.message.reply_text("📦 Creating backup...")
@@ -339,6 +892,30 @@ Use buttons in messages to interact with nodes and tunnels."""
         except Exception as e:
             logger.error(f"Error creating backup: {e}", exc_info=True)
             await update.message.reply_text(f"❌ Error creating backup: {str(e)}")
+    
+    async def cmd_logs(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /logs command"""
+        if not self.is_admin(update.effective_user.id):
+            await update.message.reply_text(self.t(update.effective_user.id, "access_denied"))
+            return
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get("http://localhost:8000/api/logs?limit=20")
+                if response.status_code == 200:
+                    logs = response.json().get("logs", [])
+                    if logs:
+                        text = "📋 Recent Logs:\n\n"
+                        for log in logs[-10:]:
+                            text += f"`{log.get('level', 'INFO')}` {log.get('message', '')[:100]}\n\n"
+                        await update.message.reply_text(text, parse_mode="Markdown")
+                    else:
+                        await update.message.reply_text("No logs available.")
+                else:
+                    await update.message.reply_text("Failed to fetch logs.")
+        except Exception as e:
+            logger.error(f"Error fetching logs: {e}", exc_info=True)
+            await update.message.reply_text(f"Error: {str(e)}")
     
     async def create_backup(self) -> Optional[str]:
         """Create backup archive"""
@@ -423,86 +1000,56 @@ Use buttons in messages to interact with nodes and tunnels."""
         await query.answer()
         
         if not self.is_admin(query.from_user.id):
-            await query.edit_message_text("❌ Access denied. You are not an admin.")
+            await query.edit_message_text(self.t(query.from_user.id, "access_denied"))
             return
         
         data = query.data
         
-        if data.startswith("node_info_"):
-            node_id = data.replace("node_info_", "")
-            await self.show_node_info(query, node_id)
-        elif data.startswith("tunnel_info_"):
-            tunnel_id = data.replace("tunnel_info_", "")
-            await self.show_tunnel_info(query, tunnel_id)
+        if data == "select_language":
+            keyboard = [
+                [InlineKeyboardButton(self.t(query.from_user.id, "english"), callback_data="lang_en")],
+                [InlineKeyboardButton(self.t(query.from_user.id, "farsi"), callback_data="lang_fa")],
+                [InlineKeyboardButton(self.t(query.from_user.id, "back"), callback_data="back_to_menu")],
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text("🌐 Select Language:", reply_markup=reply_markup)
+        elif data.startswith("lang_"):
+            lang = data.replace("lang_", "")
+            self.user_languages[query.from_user.id] = lang
+            lang_name = "English" if lang == "en" else "Farsi"
+            await query.edit_message_text(self.t(query.from_user.id, "language_set", lang=lang_name))
+            await asyncio.sleep(1)
+            await self.show_main_menu(query.message)
+        elif data == "back_to_menu":
+            await self.show_main_menu(query.message)
+        elif data == "node_stats":
+            await self.cmd_nodes_callback(query.message)
+        elif data == "tunnel_stats":
+            await self.cmd_tunnels_callback(query.message)
+        elif data == "logs":
+            await self.cmd_logs_callback(query)
         elif data == "cmd_nodes":
-            await self.cmd_nodes_callback(query)
+            await self.cmd_nodes_callback(query.message)
         elif data == "cmd_tunnels":
-            await self.cmd_tunnels_callback(query)
+            await self.cmd_tunnels_callback(query.message)
         elif data == "cmd_backup":
             await self.cmd_backup_callback(query)
         elif data == "cmd_status":
-            await self.cmd_status_callback(query)
+            await self.cmd_status_callback(query.message)
     
-    async def show_node_info(self, query, node_id: str):
-        """Show node information"""
-        async with AsyncSessionLocal() as session:
-            result = await session.execute(select(Node).where(Node.id == node_id))
-            node = result.scalar_one_or_none()
-            
-            if not node:
-                await query.edit_message_text("❌ Node not found.")
-                return
-            
-            role = node.node_metadata.get("role", "unknown") if node.node_metadata else "unknown"
-            ip = node.node_metadata.get("ip_address", "N/A") if node.node_metadata else "N/A"
-            
-            text = f"""🖥️ Node: {node.name}
-
-📋 ID: {node.id}
-🌐 Role: {role}
-📍 IP: {ip}
-📊 Status: {node.status}
-"""
-            
-            keyboard = [
-                [InlineKeyboardButton("🔙 Back to Nodes", callback_data="cmd_nodes")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            await query.edit_message_text(text, reply_markup=reply_markup)
-    
-    async def show_tunnel_info(self, query, tunnel_id: str):
-        """Show tunnel information"""
-        async with AsyncSessionLocal() as session:
-            result = await session.execute(select(Tunnel).where(Tunnel.id == tunnel_id))
-            tunnel = result.scalar_one_or_none()
-            
-            if not tunnel:
-                await query.edit_message_text("❌ Tunnel not found.")
-                return
-            
-            text = f"""🔗 Tunnel: {tunnel.name}
-
-📋 ID: {tunnel.id}
-🔧 Core: {tunnel.core}
-📊 Status: {tunnel.status}
-"""
-            
-            keyboard = [
-                [InlineKeyboardButton("🔙 Back to Tunnels", callback_data="cmd_tunnels")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            await query.edit_message_text(text, reply_markup=reply_markup)
-    
-    async def cmd_nodes_callback(self, query):
+    async def cmd_nodes_callback(self, message):
         """Handle nodes command from callback"""
+        user_id = message.from_user.id if hasattr(message, 'from_user') else message.chat.id
         async with AsyncSessionLocal() as session:
             result = await session.execute(select(Node))
             nodes = result.scalars().all()
             
             if not nodes:
-                await query.edit_message_text("📭 No nodes found.")
+                text = self.t(user_id, "no_nodes")
+                if hasattr(message, 'edit_message_text'):
+                    await message.edit_message_text(text)
+                else:
+                    await message.reply_text(text)
                 return
             
             text = "🖥️ Nodes:\n\n"
@@ -520,19 +1067,27 @@ Use buttons in messages to interact with nodes and tunnels."""
                         callback_data=f"node_info_{node.id}"
                     )
                 ])
-            keyboard.append([InlineKeyboardButton("🔙 Back to Status", callback_data="cmd_status")])
+            keyboard.append([InlineKeyboardButton(self.t(user_id, "back"), callback_data="back_to_menu")])
             
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.edit_message_text(text, reply_markup=reply_markup)
+            if hasattr(message, 'edit_message_text'):
+                await message.edit_message_text(text, reply_markup=reply_markup)
+            else:
+                await message.reply_text(text, reply_markup=reply_markup)
     
-    async def cmd_tunnels_callback(self, query):
+    async def cmd_tunnels_callback(self, message):
         """Handle tunnels command from callback"""
+        user_id = message.from_user.id if hasattr(message, 'from_user') else message.chat.id
         async with AsyncSessionLocal() as session:
             result = await session.execute(select(Tunnel))
             tunnels = result.scalars().all()
             
             if not tunnels:
-                await query.edit_message_text("📭 No tunnels found.")
+                text = self.t(user_id, "no_tunnels")
+                if hasattr(message, 'edit_message_text'):
+                    await message.edit_message_text(text)
+                else:
+                    await message.reply_text(text)
                 return
             
             text = f"🔗 Tunnels ({len(tunnels)}):\n\n"
@@ -551,34 +1106,17 @@ Use buttons in messages to interact with nodes and tunnels."""
                         callback_data=f"tunnel_info_{tunnel.id}"
                     )
                 ])
-            keyboard.append([InlineKeyboardButton("🔙 Back to Status", callback_data="cmd_status")])
+            keyboard.append([InlineKeyboardButton(self.t(user_id, "back"), callback_data="back_to_menu")])
             
             reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
-            await query.edit_message_text(text, reply_markup=reply_markup)
-    
-    async def cmd_backup_callback(self, query):
-        """Handle backup command from callback"""
-        await query.edit_message_text("📦 Creating backup...")
-        
-        try:
-            backup_path = await self.create_backup()
-            if backup_path:
-                with open(backup_path, 'rb') as f:
-                    await query.message.reply_document(
-                        document=f,
-                        filename=f"smite_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
-                        caption="✅ Backup created successfully"
-                    )
-                os.remove(backup_path)
-                await query.edit_message_text("✅ Backup created and sent successfully!")
+            if hasattr(message, 'edit_message_text'):
+                await message.edit_message_text(text, reply_markup=reply_markup)
             else:
-                await query.edit_message_text("❌ Failed to create backup")
-        except Exception as e:
-            logger.error(f"Error creating backup: {e}", exc_info=True)
-            await query.edit_message_text(f"❌ Error creating backup: {str(e)}")
+                await message.reply_text(text, reply_markup=reply_markup)
     
-    async def cmd_status_callback(self, query):
+    async def cmd_status_callback(self, message):
         """Handle status command from callback"""
+        user_id = message.from_user.id if hasattr(message, 'from_user') else message.chat.id
         async with AsyncSessionLocal() as session:
             nodes_result = await session.execute(select(Node))
             nodes = nodes_result.scalars().all()
@@ -603,13 +1141,58 @@ Use buttons in messages to interact with nodes and tunnels."""
                 [
                     InlineKeyboardButton("📦 Create Backup", callback_data="cmd_backup"),
                     InlineKeyboardButton("🔄 Refresh", callback_data="cmd_status")
+                ],
+                [
+                    InlineKeyboardButton(self.t(user_id, "back"), callback_data="back_to_menu")
                 ]
             ]
             
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.edit_message_text(text, reply_markup=reply_markup)
+            if hasattr(message, 'edit_message_text'):
+                await message.edit_message_text(text, reply_markup=reply_markup)
+            else:
+                await message.reply_text(text, reply_markup=reply_markup)
+    
+    async def cmd_backup_callback(self, query):
+        """Handle backup command from callback"""
+        await query.edit_message_text("📦 Creating backup...")
+        
+        try:
+            backup_path = await self.create_backup()
+            if backup_path:
+                with open(backup_path, 'rb') as f:
+                    await query.message.reply_document(
+                        document=f,
+                        filename=f"smite_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
+                        caption="✅ Backup created successfully"
+                    )
+                os.remove(backup_path)
+                await query.edit_message_text("✅ Backup created and sent successfully!")
+            else:
+                await query.edit_message_text("❌ Failed to create backup")
+        except Exception as e:
+            logger.error(f"Error creating backup: {e}", exc_info=True)
+            await query.edit_message_text(f"❌ Error creating backup: {str(e)}")
+    
+    async def cmd_logs_callback(self, query):
+        """Handle logs command from callback"""
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get("http://localhost:8000/api/logs?limit=20")
+                if response.status_code == 200:
+                    logs = response.json().get("logs", [])
+                    if logs:
+                        text = "📋 Recent Logs:\n\n"
+                        for log in logs[-10:]:
+                            text += f"`{log.get('level', 'INFO')}` {log.get('message', '')[:100]}\n\n"
+                        await query.edit_message_text(text, parse_mode="Markdown")
+                    else:
+                        await query.edit_message_text("No logs available.")
+                else:
+                    await query.edit_message_text("Failed to fetch logs.")
+        except Exception as e:
+            logger.error(f"Error fetching logs: {e}", exc_info=True)
+            await query.edit_message_text(f"Error: {str(e)}")
 
 
 telegram_bot = TelegramBot()
-
-
