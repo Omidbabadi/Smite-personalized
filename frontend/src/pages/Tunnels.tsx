@@ -582,7 +582,7 @@ const EditTunnelModal = ({ tunnel, onClose, onSuccess }: EditTunnelModalProps) =
   }
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[100]">
       <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md">
         <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Edit Tunnel</h2>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -906,6 +906,7 @@ interface AddTunnelModalProps {
 }
 
 const AddTunnelModal = ({ nodes, servers, onClose, onSuccess }: AddTunnelModalProps) => {
+  const { t } = useLanguage()
   const [formData, setFormData] = useState({
     name: '',
     core: 'gost',
@@ -1134,7 +1135,7 @@ const AddTunnelModal = ({ nodes, servers, onClose, onSuccess }: AddTunnelModalPr
   }
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-auto">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[100] overflow-auto">
       <div className="bg-white dark:bg-gray-800 rounded-lg p-4 w-full max-w-xl my-4 max-h-[90vh] overflow-y-auto">
         <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">{t.tunnels.createTunnel}</h2>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -1730,7 +1731,7 @@ function BackhaulAdvancedDrawer({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex">
+    <div className="fixed inset-0 z-[100] flex">
       <div className="flex-1 bg-black bg-opacity-40" onClick={onClose} />
       <div className="w-full max-w-xl h-full bg-white dark:bg-gray-900 shadow-xl overflow-y-auto p-6">
         <div className="flex justify-between items-center mb-6">
