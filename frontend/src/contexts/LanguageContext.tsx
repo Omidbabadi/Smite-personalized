@@ -157,7 +157,7 @@ const translations: Record<Language, Translations> = {
     navigation: {
       dashboard: 'Dashboard',
       nodes: 'Iran Nodes',
-      servers: 'Foreign node',
+      servers: 'Foreign Nodes',
       tunnels: 'Tunnels',
       coreHealth: 'Core Health',
       logs: 'Logs',
@@ -174,7 +174,7 @@ const translations: Record<Language, Translations> = {
       downloadCA: 'Download CA',
     },
     servers: {
-      title: 'Foreign node',
+      title: 'Foreign Nodes',
       subtitle: 'Manage your Foreign servers',
       viewCACertificate: 'View CA Certificate',
       downloadCA: 'Download CA',
