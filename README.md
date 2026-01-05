@@ -27,6 +27,7 @@
 - **Unified Node Management**: Iran and Foreign nodes are manageable from a single panel for reverse tunnels
 - **Web UI**: Modern, intuitive web interface with real-time connection status tracking
 - **CLI Tools**: Powerful command-line tools for management
+- **Telegram Bot**: Panel statistics and automatic backups via Telegram
 - **GOST Forwarding**: Forward traffic from Iran nodes to Foreign servers with support for TCP, UDP, WebSocket, gRPC, and TCPMux
 
 ---
