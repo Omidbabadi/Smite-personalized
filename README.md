@@ -96,7 +96,7 @@ smite admin create
 ### Quick Install
 
 ```bash
-sudo bash -c "$(curl -sL https://raw.githubusercontent.com/zZedix/Smite/main/scripts/smite-node.sh)"
+sudo bash -c "$(curl -sL https://raw.githubusercontent.com/Omidbabadi/Smite-personalized/main/scripts/smite-node.sh)"
 ```
 
 <details>
